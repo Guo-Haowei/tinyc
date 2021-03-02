@@ -1,0 +1,24 @@
+# folder
+build/
+tmp/
+
+# exe
+cc
+
+# windows
+*.exe
+*.obj
+
+# linux
+*.out
+*.s
+*.o
+*.out
+
+# Cmake
+CMakeFiles/
+cmake_install.cmake
+CMakeCache.txt
+
+# vscode
+.vscode/

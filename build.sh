@@ -1,0 +1,1 @@
+gcc -Wall -Wextra cc.c -o cc
