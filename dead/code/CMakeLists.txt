@@ -1,0 +1,14 @@
+add_executable(toy_c
+    codegen.c
+    datatype.c
+    error.c
+    filecache.c
+    main.c
+    misc.c
+    parser.c
+    preprocessor.c
+    tokenizer.c
+    setup.c
+    utility.c
+    validation.c
+)
