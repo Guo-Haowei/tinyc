@@ -1,11 +1,10 @@
 *.exe
 bin/
 build/
-playground/
 *.out
 *.s
 *.obj
 *.o
 a.out
 tmp/
-actual.asm
+cc
