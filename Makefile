@@ -23,6 +23,10 @@ format:
 	clang-format -i *.c *.h
 
 clean:
-	rm cc *.o
+	rm cc *.o *.out
 
-.PHONY: clean format
+unit:
+	gcc -Wno-pointer-to-int-cast list.c debug.c unit/list.test.c -o list.out
+	valgrind ./list.out
+
+.PHONY: clean format unit

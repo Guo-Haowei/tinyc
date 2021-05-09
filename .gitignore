@@ -5,6 +5,6 @@ build/
 *.s
 *.obj
 *.o
-a.out
+*.out
 tmp/
 cc

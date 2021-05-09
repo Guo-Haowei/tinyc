@@ -1,5 +1,5 @@
-#include <stdio.h>
+#include "cc.h"
 
 int main() {
-    printf("Hello, world\n");
+    printf("hello, cc\n");
 }
