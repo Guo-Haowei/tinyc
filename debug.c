@@ -1,5 +1,7 @@
 #include "cc.h"
 
+#ifdef DEBUG
+
 void _assert_internal(int line, const char* file, const char* assertion) {
     fprintf(stderr,
             "assertion (%s) \e[0;31mfailed\e[0m\n\ton line %d in file '%s'\n",
@@ -23,3 +25,5 @@ const char* tk2str(int kind) {
 
     return kNames[kind];
 }
+
+#endif // #ifdef DEBUG

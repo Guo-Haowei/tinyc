@@ -20,7 +20,7 @@ $(OBJS): cc.h
 # 	@./tmp-test2
 
 format:
-	clang-format -i *.c *.h
+	clang-format -i *.c
 
 clean:
 	rm cc *.o *.out

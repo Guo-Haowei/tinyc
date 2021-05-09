@@ -1,8 +1,9 @@
 #ifndef __CC_H__
 #define __CC_H__
-// #include <stdarg.h>
-#include <stdio.h>   // printf()
-#include <stdlib.h>  // exit()
+#include <stdarg.h>  // va_list
+#include <stdio.h>   // printf
+#include <stdlib.h>  // exit
+#include <string.h>  // memset
 
 // TODO: add config.h
 #define DEBUG
@@ -45,6 +46,9 @@ void* _list_pop_back(struct _list_t* list);
 #define list_pop_front(t, l) ((t)_list_pop_front(l))
 #define list_pop_back(t, l) ((t)_list_pop_back(l))
 
+/*
+** lexer.c
+*/
 enum TokenKind {
     TOKEN_INVALID,
     TOKEN_SYMBOL,
@@ -67,14 +71,32 @@ struct Token {
     int kind;                // kind of token
 };
 
+struct _list_t* lex(const char* file);
+
+/*
+** arena.c
+*/
+void arena_init();
+void arena_shutdown();
+void arena_free_all();
+
+void* alloc(int bytes);
+
+/*
+** error.c
+*/
+void panic(const char* fmt, ...);
+
+void error(const char* fmt, ...);
+
 /*
 ** debug.c
 */
-void _assert_internal(int line, const char* file, const char* assertion);
-
+#ifdef DEBUG
 const char* tk2str(int kind);
 
-#ifdef DEBUG
+void _assert_internal(int line, const char* file, const char* assertion);
+
 #define assert(cond) if (!(cond)) { _assert_internal(__LINE__, __FILE__, #cond); }
 #else
 #define assert(cond)
