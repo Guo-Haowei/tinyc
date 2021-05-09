@@ -29,6 +29,7 @@ void _list_clear(struct _list_t* list);
 
 void* _list_back(struct _list_t* list);
 void* _list_front(struct _list_t* list);
+void* _list_at(struct _list_t* list, int idx);
 
 void _list_push_front(struct _list_t* list, void* data);
 void _list_push_back(struct _list_t* list, void* data);
@@ -40,6 +41,7 @@ void* _list_pop_back(struct _list_t* list);
 
 #define list_back(t, l) ((t)_list_back(l))
 #define list_front(t, l) ((t)_list_front(l))
+#define list_at(t, l, i) ((t)_list_at(l, i))
 
 #define list_push_front(t, l, e) _list_push_front(l, ((void*)(e)))
 #define list_push_back(t, l, e) _list_push_back(l, ((void*)(e)))
@@ -60,6 +62,7 @@ enum TokenKind {
 };
 
 struct Token {
+    const char* path;        // source path
     const char* source;      // source file
     const char* start;       // token start
     const char* end;         // token end
@@ -71,14 +74,37 @@ struct Token {
     int kind;                // kind of token
 };
 
-struct _list_t* lex(const char* file);
+struct Loc {
+    const char* path;
+    const char* source;
+    const char* p;
+    int ln;
+    int col;
+};
+
+void init_lexer();
+
+struct _list_t* lex(const char* path);
+
+/*
+** filecache.c
+*/
+struct string_view {
+    const char* start;
+    int len;
+};
+
+void init_fcache();
+void shutdown_fcache();
+const char* fcache_get(const char* path);
+const struct string_view* fcache_getline(const char* path, int ln);
 
 /*
 ** arena.c
 */
-void arena_init();
-void arena_shutdown();
-void arena_free_all();
+void init_arena();
+void shutdown_arena();
+void free_arena();
 
 void* alloc(int bytes);
 
@@ -88,12 +114,14 @@ void* alloc(int bytes);
 void panic(const char* fmt, ...);
 
 void error(const char* fmt, ...);
+void error_loc(struct Loc* loc, const char* fmt, ...);
 
 /*
 ** debug.c
 */
 #ifdef DEBUG
 const char* tk2str(int kind);
+void dumptks(struct _list_t* tks);
 
 void _assert_internal(int line, const char* file, const char* assertion);
 
@@ -101,5 +129,10 @@ void _assert_internal(int line, const char* file, const char* assertion);
 #else
 #define assert(cond)
 #endif  // #ifdef DEBUG
+
+/*
+** global
+*/
+extern const char* g_prog;
 
 #endif  // __CC_H__

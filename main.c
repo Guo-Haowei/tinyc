@@ -1,22 +1,34 @@
 #include "cc.h"
 
-static void usage(const char* prog) {
+const char* g_prog;
+
+static void usage() {
     fprintf(stderr,
             "Usage: %s [options] file...\n"
             "Options:\n"
             "  --help   Display this information\n",
-            prog);
+            g_prog);
 }
 
 int main(int argc, const char** argv) {
+    g_prog = *argv;
+
     if (argc != 2) {
-        usage(argv[0]);
+        usage();
         exit(-1);
     }
 
-    arena_init();
+    init_arena();
 
-    lex(argv[1]);
+    init_fcache();
 
-    arena_shutdown();
+    init_lexer();
+
+    struct _list_t* tks = lex(argv[1]);
+    list_delete(struct Token*, tks);
+
+    shutdown_fcache();
+
+    free_arena();
+    shutdown_arena();
 }

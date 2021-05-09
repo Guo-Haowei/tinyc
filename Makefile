@@ -19,6 +19,10 @@ $(OBJS): cc.h
 # 	@gcc -static -o tmp-test2 tmp-test2.s
 # 	@./tmp-test2
 
+all:
+	make
+	gcc -Wno-pointer-to-int-cast list.c debug.c unit/list.test.c -o list.out
+
 format:
 	clang-format -i *.c
 
@@ -26,7 +30,6 @@ clean:
 	rm cc *.o *.out
 
 unit:
-	gcc -Wno-pointer-to-int-cast list.c debug.c unit/list.test.c -o list.out
 	valgrind ./list.out
 
-.PHONY: clean format unit
+.PHONY: clean format all unit

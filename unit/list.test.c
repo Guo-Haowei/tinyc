@@ -21,6 +21,7 @@ int main() {
     printf("push [ -1 1 ]\n");
     list_push_back(int, list, 1);
     list_push_front(int, list, -1);
+
     list_print(list);
     printf("push [ -2 2 ]\n");
     list_push_back(int, list, 2);
@@ -34,6 +35,16 @@ int main() {
     list_push_back(int, list, 4);
     list_push_front(int, list, -4);
     list_print(list);
+
+    /// TODO: unit test frame work
+    assert(list_at(int, list, 0) == -4);
+    assert(list_at(int, list, 1) == -3);
+    assert(list_at(int, list, 2) == -2);
+    assert(list_at(int, list, 3) == -1);
+    assert(list_at(int, list, 4) == +1);
+    assert(list_at(int, list, 5) == +2);
+    assert(list_at(int, list, 6) == +3);
+    assert(list_at(int, list, 7) == +4);
 
     const int half = list->len / 2;
     while (list->len > half) {

@@ -39,6 +39,16 @@ void* _list_front(struct _list_t* list) {
     return list->front->data;
 }
 
+void* _list_at(struct _list_t* list, int idx) {
+    assert(list && idx >= 0 && idx < list->len);
+
+    struct _list_node_t* n = list->front;
+    for (; idx--; n = n->next) {
+        assert(n);
+    }
+    return n->data;
+}
+
 void _list_push_front(struct _list_t* list, void* data) {
     assert(list);
     struct _list_node_t* n = _list_node_new();

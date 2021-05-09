@@ -1,6 +1,6 @@
 #include "cc.h"
 
-#define RESERVE_SIZE_IN_BYTE (64 * 1024 * 1024) // 64MB
+#define RESERVE_SIZE_IN_BYTE (64 * 1024 * 1024)  // 64MB
 #define ALIGNMENT 8
 #define ROUND_UP(byte) ((byte + ALIGNMENT - 1) & (-ALIGNMENT))
 
@@ -12,8 +12,8 @@ struct Arena {
 
 static struct Arena g_arena;
 
-void arena_init() {
-    arena_shutdown();
+void init_arena() {
+    shutdown_arena();
 
     g_arena.head = calloc(1, RESERVE_SIZE_IN_BYTE);
     if (!g_arena.head) {
@@ -24,7 +24,7 @@ void arena_init() {
     g_arena.size = RESERVE_SIZE_IN_BYTE;
 }
 
-void arena_shutdown() {
+void shutdown_arena() {
     if (g_arena.head) {
         free(g_arena.head);
     }
@@ -34,7 +34,7 @@ void arena_shutdown() {
     g_arena.size = 0;
 }
 
-void arena_free_all() {
+void free_arena() {
     g_arena.tail = g_arena.head;
     memset(g_arena.head, 0, g_arena.size);
 }

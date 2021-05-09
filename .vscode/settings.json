@@ -4,6 +4,8 @@
         "formatOnSave": true
     },
     "files.associations": {
-        "cc.h": "c"
+        "cc.h": "c",
+        "string.h": "c",
+        "stdio.h": "c"
     }
 }
