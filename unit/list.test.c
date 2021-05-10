@@ -1,13 +1,13 @@
 #include "../cc.h"
 
-void list_print(struct _list_t* list) {
+void list_print(struct list_t* list) {
     printf("\tsize: %d\n", list->len);
     printf("\t[ ");
-    for (struct _list_node_t* n = list->front; n; n = n->next) {
+    for (struct list_node_t* n = list->front; n; n = n->next) {
         printf("%d ", (int)(n->data));
     }
     printf("] reversed [ ");
-    for (struct _list_node_t* n = list->back; n; n = n->prev) {
+    for (struct list_node_t* n = list->back; n; n = n->prev) {
         printf("%d ", (int)(n->data));
     }
     printf("]\n");
@@ -16,24 +16,24 @@ void list_print(struct _list_t* list) {
 int main() {
     printf("****************************************************************\n");
     printf("[list]\n");
-    list_new(int, list);
+    list_new(list);
 
     printf("push [ -1 1 ]\n");
-    list_push_back(int, list, 1);
-    list_push_front(int, list, -1);
+    list_push_back(list, 1);
+    list_push_front(list, -1);
 
     list_print(list);
     printf("push [ -2 2 ]\n");
-    list_push_back(int, list, 2);
-    list_push_front(int, list, -2);
+    list_push_back(list, 2);
+    list_push_front(list, -2);
     list_print(list);
     printf("push [ -3 3 ]\n");
-    list_push_back(int, list, 3);
-    list_push_front(int, list, -3);
+    list_push_back(list, 3);
+    list_push_front(list, -3);
     list_print(list);
     printf("push [ -4 4 ]\n");
-    list_push_back(int, list, 4);
-    list_push_front(int, list, -4);
+    list_push_back(list, 4);
+    list_push_front(list, -4);
     list_print(list);
 
     /// TODO: unit test frame work
@@ -58,7 +58,7 @@ int main() {
         list_print(list);
     }
 
-    list_delete(int, list);
+    list_delete(list);
     printf("****************************************************************\n");
 }
 

@@ -1,6 +1,6 @@
 #include "cc.h"
 
-#define RESERVE_SIZE_IN_BYTE (64 * 1024 * 1024)  // 64MB
+#define RESERVE_SIZE_IN_BYTE (1024 * 1024)  // 1MB
 #define ALIGNMENT 8
 #define ROUND_UP(byte) ((byte + ALIGNMENT - 1) & (-ALIGNMENT))
 

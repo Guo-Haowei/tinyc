@@ -9,51 +9,67 @@
 #define DEBUG
 
 /*
-** list.c
+** types
 */
-struct _list_node_t {
-    struct _list_node_t* prev;
-    struct _list_node_t* next;
-    void* data;
-};
+#define bool int
+#define true 1
+#define false 0
 
-struct _list_t {
-    struct _list_node_t* front;
-    struct _list_node_t* back;
+/// TODO: string utilities
+struct string_view {
+    const char* start;
     int len;
 };
 
-struct _list_t* _list_new();
-void _list_delete(struct _list_t** plist);
-void _list_clear(struct _list_t* list);
+/*
+** list.c
+*/
+struct list_node_t {
+    struct list_node_t* prev;
+    struct list_node_t* next;
+    void* data;
+};
 
-void* _list_back(struct _list_t* list);
-void* _list_front(struct _list_t* list);
-void* _list_at(struct _list_t* list, int idx);
+struct list_t {
+    struct list_node_t* front;
+    struct list_node_t* back;
+    int len;
+};
 
-void _list_push_front(struct _list_t* list, void* data);
-void _list_push_back(struct _list_t* list, void* data);
-void* _list_pop_front(struct _list_t* list);
-void* _list_pop_back(struct _list_t* list);
+struct list_t* _list_new();
+void _list_delete(struct list_t** plist);
+void _list_clear(struct list_t* list);
 
-#define list_new(t, l) struct _list_t* l = _list_new()
-#define list_delete(t, l) _list_delete(&l)
+void* _list_back(struct list_t* list);
+void* _list_front(struct list_t* list);
+void* _list_at(struct list_t* list, int idx);
+
+void _list_push_front(struct list_t* list, void* data);
+void _list_push_back(struct list_t* list, void* data);
+void* _list_pop_front(struct list_t* list);
+void* _list_pop_back(struct list_t* list);
+
+#define list_new(l) struct list_t* l = _list_new()
+#define list_delete(l) _list_delete(&l)
+#define list_empty(l) (l->len == 0)
+#define list_len(l) (l->len)
 
 #define list_back(t, l) ((t)_list_back(l))
 #define list_front(t, l) ((t)_list_front(l))
 #define list_at(t, l, i) ((t)_list_at(l, i))
 
-#define list_push_front(t, l, e) _list_push_front(l, ((void*)(e)))
-#define list_push_back(t, l, e) _list_push_back(l, ((void*)(e)))
+#define list_push_front(l, e) _list_push_front(l, ((void*)(e)))
+#define list_push_back(l, e) _list_push_back(l, ((void*)(e)))
 #define list_pop_front(t, l) ((t)_list_pop_front(l))
 #define list_pop_back(t, l) ((t)_list_pop_back(l))
 
 /*
-** lexer.c
+** token.c
 */
-enum TokenKind {
+enum {
     TOKEN_INVALID,
     TOKEN_SYMBOL,
+    TOKEN_KEWWORD,
     TOKEN_PUNCT,
     TOKEN_INT,
     TOKEN_CHAR,
@@ -74,6 +90,27 @@ struct Token {
     int kind;                // kind of token
 };
 
+bool tkeqc(const struct Token* tk, int c);
+bool tkeqstr(const struct Token* tk, const char* str);
+
+/*
+** lexer.c
+*/
+struct list_t* lex_one(const char* path, const char* source);
+struct list_t* lex(const char* path);
+
+/*
+** preprocessor.c
+*/
+struct list_t* preproc(struct list_t* tokens);
+void init_preproc(); // set up macro table
+void shutdown_preproc(); // clean up macro table
+
+/*
+** filecache.c
+**   - struct FileCache* fcache_get(const char* path);
+**   - lex raw file if not exists, otherwise return the cached object
+*/
 struct Loc {
     const char* path;
     const char* source;
@@ -82,22 +119,17 @@ struct Loc {
     int col;
 };
 
-void init_lexer();
-
-struct _list_t* lex(const char* path);
-
-/*
-** filecache.c
-*/
-struct string_view {
-    const char* start;
-    int len;
+struct FileCache {
+    char path[256];
+    const char* source;
+    /// TODO: use array instead
+    struct list_t* lines;
+    struct list_t* rawtks;
 };
 
 void init_fcache();
 void shutdown_fcache();
-const char* fcache_get(const char* path);
-const struct string_view* fcache_getline(const char* path, int ln);
+struct FileCache* fcache_get(const char* path);
 
 /*
 ** arena.c
@@ -113,15 +145,21 @@ void* alloc(int bytes);
 */
 void panic(const char* fmt, ...);
 
+enum {
+    LEVEL_WARNING,
+    LEVEL_ERROR,
+};
+
 void error(const char* fmt, ...);
-void error_loc(struct Loc* loc, const char* fmt, ...);
+void error_loc(int level, const struct Loc* loc, const char* fmt, ...);
+void error_tk(int level, const struct Token* tk, const char* fmt, ...);
 
 /*
 ** debug.c
 */
 #ifdef DEBUG
 const char* tk2str(int kind);
-void dumptks(struct _list_t* tks);
+void dumptks(const struct list_t* tks);
 
 void _assert_internal(int line, const char* file, const char* assertion);
 
@@ -130,9 +168,20 @@ void _assert_internal(int line, const char* file, const char* assertion);
 #define assert(cond)
 #endif  // #ifdef DEBUG
 
+#define debugln(...) { fprintf(stderr, __VA_ARGS__); putc('\n', stderr); }
+
 /*
 ** global
 */
 extern const char* g_prog;
+
+#define ANSI_RED "\e[1;31m"
+#define ANSI_GREEN "\e[1;32m"
+#define ANSI_YELLOW "\e[1;33m"
+#define ANSI_BLUE "\e[1;34m"
+#define ANSI_MAGENTA "\e[1;35m"
+#define ANSI_CYAN "\e[1;36m"
+#define ANSI_WHITE "\e[1;37m"
+#define ANSI_RESET "\e[0m"
 
 #endif  // __CC_H__

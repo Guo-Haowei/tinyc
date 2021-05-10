@@ -13,8 +13,9 @@ void _assert_internal(int line, const char* file, const char* assertion) {
 
 const char* tk2str(int kind) {
     static const char* kNames[TOKEN_COUNT] = {
-        NULL,
+        "<error-kind>",
         "Symbol",
+        "Keyword",
         "Punct",
         "Integer",
         "Char",
@@ -26,13 +27,13 @@ const char* tk2str(int kind) {
     return kNames[kind];
 }
 
-void dumptks(struct _list_t* tks) {
-    for (struct _list_node_t* n = tks->front; n; n = n->next) {
+void dumptks(const struct list_t* tks) {
+    for (struct list_node_t* n = tks->front; n; n = n->next) {
         struct Token* tk = (struct Token*)(n->data);
         int len = tk->end - tk->start;
         assert(len > 0);
         fprintf(stderr,
-                "[%7s] [f: %s, ln: %2d, col: %2d]",
+                "[%7s] [f: " ANSI_GREEN "\"%s\"" ANSI_RESET ", ln: %2d, col: %2d]",
                 tk2str(tk->kind),
                 tk->path,
                 tk->ln,

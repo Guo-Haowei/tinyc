@@ -1,37 +1,26 @@
 #include "cc.h"
 
-static struct _list_t* g_locs;
+struct Loc g_loc;
 
-static const char* getp() {
-    assert(g_locs);
-    return list_back(struct Loc*, g_locs)->p;
-}
-
-static int peek() {
-    assert(g_locs);
-    struct Loc* loc = list_back(struct Loc*, g_locs);
-    return *(loc->p);
+static inline int peek() {
+    return *(g_loc.p);
 }
 
 static int read() {
-    assert(g_locs);
-    struct Loc* loc = list_back(struct Loc*, g_locs);
-    int c = *(loc->p);
+    const int c = *(g_loc.p);
     if (c == '\n') {
-        ++loc->ln;
-        loc->col = 1;
+        ++g_loc.ln;
+        g_loc.col = 1;
     } else {
-        ++loc->col;
+        ++g_loc.col;
     }
 
-    ++loc->p;
+    ++g_loc.p;
     return c;
 }
 
 static void skipline() {
-    assert(g_locs);
-    struct Loc* loc = list_back(struct Loc*, g_locs);
-    while (*loc->p) {
+    while (*g_loc.p) {
         int c = read();
         if (c == '\n') {
             break;
@@ -41,15 +30,13 @@ static void skipline() {
     return;
 }
 
-static struct Loc* push_source(const char* path, const char* source) {
-    struct Loc* loc = alloc(sizeof(struct Loc));
-    loc->path = path;
-    loc->source = source;
-    loc->p = source;
-    loc->ln = 1;
-    loc->col = 1;
-    list_push_back(struct Loc*, g_locs, loc);
-    return loc;
+static void loc_reset(const char* path, const char* source) {
+    g_loc.path = path;
+    g_loc.source = source;
+    g_loc.p = source;
+    g_loc.ln = 1;
+    g_loc.col = 1;
+    return;
 }
 
 static inline int is_symbol(const int c) {
@@ -60,38 +47,23 @@ static inline int is_dec(const int c) {
     return '0' <= c && c <= '9';
 }
 
-static void pop_source() {
-    list_pop_back(struct Loc*, g_locs);
-    return;
-}
-
-void init_lexer() {
-    if (g_locs) {
-        list_delete(struct Loc*, g_locs);
-    }
-
-    g_locs = _list_new();
-    return;
-}
-
 static struct Token* token_new(int kind) {
     assert(kind > TOKEN_INVALID && kind < TOKEN_COUNT);
-    struct Loc* loc = list_back(struct Loc*, g_locs);
     struct Token* tk = alloc(sizeof(struct Token));
-    tk->path = loc->path;
-    tk->source = loc->source;
-    tk->start = loc->p;
-    tk->end = loc->p;
+    tk->path = g_loc.path;
+    tk->source = g_loc.source;
+    tk->start = g_loc.p;
+    tk->end = g_loc.p;
     tk->macroStart = NULL;
     tk->macroEnd = NULL;
     tk->extra = NULL;
-    tk->col = loc->col;
-    tk->ln = loc->ln;
+    tk->col = g_loc.col;
+    tk->ln = g_loc.ln;
     tk->kind = kind;
     return tk;
 }
 
-static void add_dec(struct _list_t* list) {
+static void add_dec(struct list_t* tks) {
     assert(is_dec(peek()));
     struct Token* tk = token_new(TOKEN_INT);
     while (is_dec(peek())) {
@@ -99,11 +71,11 @@ static void add_dec(struct _list_t* list) {
         ++tk->end;
     }
 
-    list_push_back(struct Token*, list, tk);
+    list_push_back(tks, tk);
     return;
 }
 
-static void add_symbol(struct _list_t* list) {
+static void add_symbol(struct list_t* tks) {
     assert(is_symbol(peek()));
     struct Token* tk = token_new(TOKEN_SYMBOL);
     for (;;) {
@@ -115,11 +87,11 @@ static void add_symbol(struct _list_t* list) {
         }
     }
 
-    list_push_back(struct Token*, list, tk);
+    list_push_back(tks, tk);
     return;
 }
 
-static void add_string(struct _list_t* list) {
+static void add_string(struct list_t* tks) {
     assert(peek() == '"');
     struct Token* tk = token_new(TOKEN_STRING);
     for (;;) {
@@ -140,35 +112,29 @@ static void add_string(struct _list_t* list) {
         }
     }
 
-    list_push_back(struct Token*, list, tk);
+    list_push_back(tks, tk);
     return;
 }
 
-static void add_punct(struct _list_t* list) {
+static void add_punct(struct list_t* tks) {
     struct Token* tk = token_new(TOKEN_PUNCT);
 
     // only one line punct
     read();
     ++tk->end;
 
-    list_push_back(struct Token*, list, tk);
+    list_push_back(tks, tk);
     return;
 }
 
-struct _list_t* lex(const char* path) {
-    const char* source = fcache_get(path);
-
-    if (!source) {
-        error("%s: No such file or directory", path);
-    }
-
-    push_source(path, source);
-    list_new(struct Token*, tks);
+struct list_t* lex_one(const char* path, const char* source) {
+    list_new(tks);
+    loc_reset(path, source);
 
     int c;
     while ((c = peek())) {
         // one line comment
-        if (strncmp(getp(), "//", 2) == 0) {
+        if (strncmp(g_loc.p, "//", 2) == 0) {
             skipline();
             continue;
         }
@@ -198,18 +164,26 @@ struct _list_t* lex(const char* path) {
         }
 
         // punct
-        if (strchr("#(){}=;", c)) {
+        if (strchr("#(){}=,;", c)) {
             add_punct(tks);
             continue;
         }
 
-        struct Loc* loc = list_back(struct Loc*, g_locs);
-        error_loc(loc, "stray '%c' in program", c);
+        error_loc(LEVEL_ERROR, &g_loc, "stray '%c' in program", c);
     }
 
-    pop_source();
+    return tks;
+}
 
-    dumptks(tks);
+struct list_t* lex(const char* path) {
+    struct FileCache* fcache = fcache_get(path);
+
+    if (!fcache) {
+        error("%s: No such file or directory", path);
+    }
+
+    // preprocess
+    struct list_t* tks = preproc(fcache->rawtks);
 
     return tks;
 }

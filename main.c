@@ -22,11 +22,13 @@ int main(int argc, const char** argv) {
 
     init_fcache();
 
-    init_lexer();
+    // init -DDEBUG=1
+    init_preproc();
 
-    struct _list_t* tks = lex(argv[1]);
-    list_delete(struct Token*, tks);
+    struct list_t* tks = lex(argv[1]);
+    list_delete(tks);
 
+    shutdown_preproc();
     shutdown_fcache();
 
     free_arena();
