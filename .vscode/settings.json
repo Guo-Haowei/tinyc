@@ -6,6 +6,7 @@
     "files.associations": {
         "cc.h": "c",
         "string.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "unit.h": "c"
     }
 }

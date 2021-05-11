@@ -13,7 +13,7 @@ void panic(const char* fmt, ...) {
 void error(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    fprintf(stderr, ANSI_WHITE "%s: " ANSI_RED "error: " ANSI_RESET, g_prog);
+    fprintf(stderr, ANSI_WHITE "%s: " ANSI_RED "error: " ANSI_RST, g_prog);
     vfprintf(stderr, fmt, args);
     fprintf(stderr, "\ncompilation terminated.\n");
     va_end(args);
@@ -33,7 +33,7 @@ static void error_interal(int level, const char* path, const char* source, int l
         hint = "warning";
     }
 
-    fprintf(stderr, ANSI_WHITE "%s:%d:%d %s%s:" ANSI_RESET " %s\n", path, ln, col, color, hint, msg);
+    fprintf(stderr, ANSI_WHITE "%s:%d:%d %s%s:" ANSI_RST " %s\n", path, ln, col, color, hint, msg);
 
     const struct string_view* sv = list_at(struct string_view*, fcache->lines, ln - 1);
     putc(' ', stderr);
@@ -45,7 +45,7 @@ static void error_interal(int level, const char* path, const char* source, int l
     for (; i < len + col - 1; ++i) {
         putc(sv->start[i], stderr);
     }
-    fprintf(stderr, ANSI_RESET);
+    fprintf(stderr, ANSI_RST);
     for (; i < sv->len; ++i) {
         putc(sv->start[i], stderr);
     }
@@ -59,7 +59,7 @@ static void error_interal(int level, const char* path, const char* source, int l
     for (int i = 1; i < len; ++i) {
         putc('~', stderr);
     }
-    fprintf(stderr, "\n" ANSI_RESET);
+    fprintf(stderr, "\n" ANSI_RST);
     if (level >= LEVEL_ERROR) {
         exit(-1);
     }

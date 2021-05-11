@@ -33,7 +33,7 @@ void dumptks(const struct list_t* tks) {
         int len = tk->end - tk->start;
         assert(len > 0);
         fprintf(stderr,
-                "[%7s] [f: " ANSI_GREEN "\"%s\"" ANSI_RESET ", ln: %2d, col: %2d]",
+                "[%7s] [f: " ANSI_GRN "\"%s\"" ANSI_RST ", ln: %2d, col: %2d]",
                 tk2str(tk->kind),
                 tk->path,
                 tk->ln,

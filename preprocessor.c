@@ -50,13 +50,6 @@ struct list_t* preproc(struct list_t* tks) {
         if (!is_preproc) {
             int len = tk->end - tk->start;
             assert(len > 0);
-            fprintf(stderr,
-                    "[%7s] [f: " ANSI_GREEN "\"%s\"" ANSI_RESET ", ln: %2d, col: %2d]",
-                    tk2str(tk->kind),
-                    tk->path,
-                    tk->ln,
-                    tk->col);
-            fprintf(stderr, " [\e[1;31m%.*s\e[0m]\n", len, tk->start);
             it = it->next;
             continue;
         }

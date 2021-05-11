@@ -1,64 +1,96 @@
 #include "../cc.h"
+#include "unit.h"
 
-void list_print(struct list_t* list) {
-    printf("\tsize: %d\n", list->len);
-    printf("\t[ ");
-    for (struct list_node_t* n = list->front; n; n = n->next) {
-        printf("%d ", (int)(n->data));
-    }
-    printf("] reversed [ ");
-    for (struct list_node_t* n = list->back; n; n = n->prev) {
-        printf("%d ", (int)(n->data));
-    }
-    printf("]\n");
-}
+static void test_list(struct list_t* list, const int len, ...);
 
 int main() {
-    printf("****************************************************************\n");
-    printf("[list]\n");
+    test_begin("list");
     list_new(list);
 
-    printf("push [ -1 1 ]\n");
+    expect_eq(list_len(list), 0);
+    expect_eq(list_empty(list), true);
+
     list_push_back(list, 1);
     list_push_front(list, -1);
 
-    list_print(list);
-    printf("push [ -2 2 ]\n");
+    test_list(list, 2, -1, 1);
+
     list_push_back(list, 2);
     list_push_front(list, -2);
-    list_print(list);
-    printf("push [ -3 3 ]\n");
+    test_list(list, 4, -2, -1, 1, 2);
+
     list_push_back(list, 3);
     list_push_front(list, -3);
-    list_print(list);
-    printf("push [ -4 4 ]\n");
+    test_list(list, 6, -3, -2, -1, 1, 2, 3);
+
     list_push_back(list, 4);
     list_push_front(list, -4);
-    list_print(list);
+    test_list(list, 8, -4, -3, -2, -1, 1, 2, 3, 4);
 
-    /// TODO: unit test frame work
-    assert(list_at(int, list, 0) == -4);
-    assert(list_at(int, list, 1) == -3);
-    assert(list_at(int, list, 2) == -2);
-    assert(list_at(int, list, 3) == -1);
-    assert(list_at(int, list, 4) == +1);
-    assert(list_at(int, list, 5) == +2);
-    assert(list_at(int, list, 6) == +3);
-    assert(list_at(int, list, 7) == +4);
+    // list_pop_front
+    int target_len = list->len - 3;
+    assert(target_len >= 0);
+    while (list->len > target_len) {
+        list_pop_front(int, list);
+    }
+    test_list(list, target_len, -1, 1, 2, 3, 4);
 
-    const int half = list->len / 2;
-    while (list->len > half) {
-        printf("pop %d from front\n", list_pop_front(int, list));
-        printf("pop %d from back\n", list_pop_back(int, list));
-        list_print(list);
+    // list_pop_back
+    target_len = list->len - 2;
+    assert(target_len >= 0);
+    while (list->len > target_len) {
+        list_pop_back(int, list);
     }
-    while (list->len >= 2) {
-        printf("pop %d from back\n", list_pop_back(int, list));
-        printf("pop %d from front\n", list_pop_front(int, list));
-        list_print(list);
-    }
+    test_list(list, target_len, -1, 1, 2);
+
+    // list_clear
+    expect_eq(list_empty(list), false);
+    list_clear(list);
+    expect_eq(list_len(list), 0);
+
+    list_push_back(list, 7);
+    list_push_back(list, 6);
+    list_push_front(list, 5);
+    test_list(list, 3, 5, 7, 6);
 
     list_delete(list);
-    printf("****************************************************************\n");
+    test_end();
 }
 
+static void test_list(struct list_t* list, const int len, ...) {
+    int values[1024];
+    assert(len <= ARRAY_LEN(values));
+
+    // list_len
+    expect_eq(list_len(list), len);
+
+    va_list args;
+    va_start(args, len);
+    for (int i = 0; i < len; ++i) {
+        values[i] = va_arg(args, int);
+    }
+    va_end(args);
+
+    // list_front, list_back
+    expect_eq(list_front(int, list), values[0]);
+    expect_eq(list_back(int, list), values[len - 1]);
+
+    // list_at
+    for (int i = 0; i < len; ++i) {
+        expect_eq(list_at(int, list, i), values[i]);
+    }
+
+    // list_node_t
+    int i = 0;
+    for (struct list_node_t* it = list->front; it; it = it->next) {
+        expect_eq((int)it->data, values[i]);
+        ++i;
+    }
+    assert(i == len);
+    i = len - 1;
+    for (struct list_node_t* it = list->back; it; it = it->prev) {
+        expect_eq((int)it->data, values[i]);
+        --i;
+    }
+    assert(i == -1);
+}

@@ -15,6 +15,11 @@
 #define true 1
 #define false 0
 
+/*
+** utility
+*/
+#define ARRAY_LEN(arr) (sizeof(arr) / sizeof((arr)[0]))
+
 /// TODO: string utilities
 struct string_view {
     const char* start;
@@ -51,6 +56,7 @@ void* _list_pop_back(struct list_t* list);
 
 #define list_new(l) struct list_t* l = _list_new()
 #define list_delete(l) _list_delete(&l)
+#define list_clear(l) _list_clear(l)
 #define list_empty(l) (l->len == 0)
 #define list_len(l) (l->len)
 
@@ -176,12 +182,14 @@ void _assert_internal(int line, const char* file, const char* assertion);
 extern const char* g_prog;
 
 #define ANSI_RED "\e[1;31m"
-#define ANSI_GREEN "\e[1;32m"
+#define ANSI_GRN "\e[1;32m"
 #define ANSI_YELLOW "\e[1;33m"
 #define ANSI_BLUE "\e[1;34m"
 #define ANSI_MAGENTA "\e[1;35m"
 #define ANSI_CYAN "\e[1;36m"
 #define ANSI_WHITE "\e[1;37m"
-#define ANSI_RESET "\e[0m"
+#define ANSI_RST "\e[0m"
+// #define RED "\x1B[31m"
+// #define GRN "\x1B[32m"
 
 #endif  // __CC_H__
