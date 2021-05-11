@@ -4,12 +4,12 @@ static const char* readfile(const char* path);
 static struct list_t* g_fcache;
 
 void init_fcache() {
-    assert(!g_fcache);
+    cassert(!g_fcache);
     g_fcache = _list_new();
 }
 
 void shutdown_fcache() {
-    assert(g_fcache);
+    cassert(g_fcache);
     for (struct list_node_t* n = g_fcache->front; n; n = n->next) {
         struct FileCache* cache = (struct FileCache*)(n->data);
         list_delete(cache->lines);
@@ -54,10 +54,10 @@ struct FileCache* fcache_get(const char* path) {
             llen = lend - lbegin;
         }
 
-        struct string_view* sv = alloc(sizeof(struct string_view));
-        sv->start = lbegin;
-        sv->len = llen;
-        list_push_back(fcache->lines, sv);
+        struct slice_t* slice = alloc(sizeof(struct slice_t));
+        slice->start = lbegin;
+        slice->len = llen;
+        list_push_back(fcache->lines, slice);
         lbegin = lend + 1;  // skip new line
     }
 

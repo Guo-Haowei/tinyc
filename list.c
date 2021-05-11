@@ -1,5 +1,9 @@
 #include "cc.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif  // #ifdef __cplusplus
+
 static struct list_node_t* _list_node_new();
 
 struct list_t* _list_new() {
@@ -11,46 +15,45 @@ struct list_t* _list_new() {
 }
 
 void _list_delete(struct list_t** plist) {
-    assert(plist && *plist);
+    cassert(plist && *plist);
     _list_clear(*plist);
     free(*plist);
     *plist = NULL;
 }
 
 void _list_clear(struct list_t* list) {
-    assert(list);
+    cassert(list);
 
     while (list->len) {
         _list_pop_back(list);
     }
 
-    assert(list->len == 0);
-    assert(list->front == 0);
-    assert(list->back == 0);
+    cassert(list->len == 0);
+    cassert(list->front == 0);
+    cassert(list->back == 0);
 }
 
 void* _list_back(struct list_t* list) {
-    assert(list && list->len && list->front && list->back);
+    cassert(list && list->len && list->front && list->back);
     return list->back->data;
 }
 
 void* _list_front(struct list_t* list) {
-    assert(list && list->len && list->front && list->back);
+    cassert(list && list->len && list->front && list->back);
     return list->front->data;
 }
 
 void* _list_at(struct list_t* list, int idx) {
-    assert(list && idx >= 0 && idx < list->len);
+    cassert(list && idx >= 0 && idx < list->len);
 
     struct list_node_t* n = list->front;
-    for (; idx--; n = n->next) {
-        assert(n);
-    }
+    for (; idx--; n = n->next)
+        ;
     return n->data;
 }
 
 void _list_push_front(struct list_t* list, void* data) {
-    assert(list);
+    cassert(list);
     struct list_node_t* n = _list_node_new();
     n->prev = NULL;
     n->next = list->front;
@@ -66,7 +69,7 @@ void _list_push_front(struct list_t* list, void* data) {
 }
 
 void _list_push_back(struct list_t* list, void* data) {
-    assert(list);
+    cassert(list);
     struct list_node_t* n = _list_node_new();
     n->next = NULL;
     n->prev = list->back;
@@ -82,7 +85,7 @@ void _list_push_back(struct list_t* list, void* data) {
 }
 
 void* _list_pop_front(struct list_t* list) {
-    assert(list && list->len && list->front && list->back);
+    cassert(list && list->len && list->front && list->back);
     struct list_node_t* n = list->front;
     list->front = n->next;
     if (n->next) {
@@ -98,7 +101,7 @@ void* _list_pop_front(struct list_t* list) {
 }
 
 void* _list_pop_back(struct list_t* list) {
-    assert(list && list->len && list->front && list->back);
+    cassert(list && list->len && list->front && list->back);
     struct list_node_t* n = list->back;
     list->back = n->prev;
     if (n->prev) {
@@ -120,3 +123,7 @@ struct list_node_t* _list_node_new() {
     node->data = NULL;
     return node;
 }
+
+#ifdef __cplusplus
+}
+#endif  // #ifdef __cplusplus

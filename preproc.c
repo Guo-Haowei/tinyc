@@ -15,7 +15,7 @@ static struct list_t* get_preproc_stmt(struct list_node_t** it, int ln) {
             panic("todo");
         }
 
-        assert(tk->ln >= ln);
+        cassert(tk->ln >= ln);
         if (tk->ln != ln) {
             break;
         }
@@ -51,7 +51,7 @@ struct list_t* preproc(struct list_t* tks) {
             list_push_back(ntks, tk);
 
             int len = tk->end - tk->start;
-            assert(len > 0);
+            cassert(len > 0);
             it = it->next;
             continue;
         }
@@ -92,7 +92,7 @@ struct list_t* preproc(struct list_t* tks) {
                 continue;
             }
 
-            struct string_view inclpath;
+            struct slice_t inclpath;
             inclpath.len = incl->end - incl->start;
             inclpath.start = incl->start;
             filepath(incl->path, &inclpath);

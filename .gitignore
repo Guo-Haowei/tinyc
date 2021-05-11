@@ -1,11 +1,21 @@
-*.exe
-bin/
+# folder
 build/
+tmp/
+
+# exe
+cc
+
+# windows
+*.exe
+*.obj
+
+# linux
 *.out
 *.s
-*.obj
 *.o
 *.out
-tmp
-tmp/
-cc
+
+# Cmake
+CMakeFiles/
+cmake_install.cmake
+CMakeCache.txt

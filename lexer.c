@@ -48,7 +48,7 @@ static inline int is_dec(const int c) {
 }
 
 static struct Token* token_new(int kind) {
-    assert(kind > TOKEN_INVALID && kind < TOKEN_COUNT);
+    cassert(kind > TOKEN_INVALID && kind < TOKEN_COUNT);
     struct Token* tk = alloc(sizeof(struct Token));
     tk->path = g_loc.path;
     tk->source = g_loc.source;
@@ -64,7 +64,7 @@ static struct Token* token_new(int kind) {
 }
 
 static void add_dec(struct list_t* tks) {
-    assert(is_dec(peek()));
+    cassert(is_dec(peek()));
     struct Token* tk = token_new(TOKEN_INT);
     while (is_dec(peek())) {
         read();
@@ -76,7 +76,7 @@ static void add_dec(struct list_t* tks) {
 }
 
 static void add_symbol(struct list_t* tks) {
-    assert(is_symbol(peek()));
+    cassert(is_symbol(peek()));
     struct Token* tk = token_new(TOKEN_SYMBOL);
     for (;;) {
         read();
@@ -92,7 +92,7 @@ static void add_symbol(struct list_t* tks) {
 }
 
 static void add_string(struct list_t* tks) {
-    assert(peek() == '"');
+    cassert(peek() == '"');
     struct Token* tk = token_new(TOKEN_STRING);
     for (;;) {
         read();

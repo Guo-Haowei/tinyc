@@ -1,4 +1,4 @@
-CFLAGS=-Wall -std=c11 -g
+CFLAGS=-Wall -Wextra -std=c11 -g
 SRCS=$(wildcard *.c)
 OBJS=$(SRCS:.c=.o)
 
@@ -8,18 +8,12 @@ cc: $(OBJS)
 $(OBJS): cc.h
 
 format:
-	clang-format -i *.h *.c unit/*
+	@clang-format -i *.h *.c unit/*.cpp
 
 clean:
-	rm cc *.o *.out
+	@rm cc *.o
 
-### TODO: clean up .o
 unit:
-	@echo "compiling unit test [list]"
-	@gcc -Wno-pointer-to-int-cast list.c debug.c unit/list.test.c -o list.out
-	@valgrind ./list.out
-	@echo "compiling unit test [string_util]"
-	@gcc preproc.c token.c list.c error.c filecache.c arena.c lexer.c string_util.c debug.c unit/string_util.test.c -o string_util.out
-	@./string_util.out
+	sh run-unit-test.sh
 
 .PHONY: clean format unit

@@ -40,7 +40,7 @@ void free_arena() {
 }
 
 void* alloc(int bytes) {
-    assert(bytes);
+    cassert(bytes);
     if (bytes == 0) {
         return NULL;
     }
