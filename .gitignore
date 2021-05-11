@@ -6,5 +6,6 @@ build/
 *.obj
 *.o
 *.out
+tmp
 tmp/
 cc

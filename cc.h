@@ -20,11 +20,40 @@
 */
 #define ARRAY_LEN(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-/// TODO: string utilities
+#ifdef MIN
+#undef MIN
+#endif  // #ifdef MIN
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
+#ifdef MAX
+#undef MAX
+#endif  // #ifdef MIN
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+#define MAX_PATH_LEN 256
+
+/*
+** string_util.c
+*/
 struct string_view {
     const char* start;
     int len;
 };
+
+struct string_buf {
+    char* buf;
+    int len;
+    int cap;
+};
+
+#define make_string_buf(name) struct string_buf sb; sb.buf = NULL; sb.len = 0; sb.cap = 0
+
+void sb_reserve(struct string_buf* sb, int cap);
+void sb_clear(struct string_buf* sb);
+void sb_append_str(struct string_buf* sb, const char* str);
+
+const char* filepath(const char* basefile, const struct string_view* path);
+char* shortpath(char* path);
 
 /*
 ** list.c
@@ -109,8 +138,8 @@ struct list_t* lex(const char* path);
 ** preprocessor.c
 */
 struct list_t* preproc(struct list_t* tokens);
-void init_preproc(); // set up macro table
-void shutdown_preproc(); // clean up macro table
+void init_preproc();      // set up macro table
+void shutdown_preproc();  // clean up macro table
 
 /*
 ** filecache.c
@@ -126,7 +155,7 @@ struct Loc {
 };
 
 struct FileCache {
-    char path[256];
+    char path[MAX_PATH_LEN];
     const char* source;
     /// TODO: use array instead
     struct list_t* lines;
@@ -154,11 +183,14 @@ void panic(const char* fmt, ...);
 enum {
     LEVEL_WARNING,
     LEVEL_ERROR,
+    LEVEL_FATAL,
 };
 
 void error(const char* fmt, ...);
 void error_loc(int level, const struct Loc* loc, const char* fmt, ...);
 void error_tk(int level, const struct Token* tk, const char* fmt, ...);
+void error_after_tk(int level, const struct Token* tk, const char* fmt, ...);
+void check_should_exit();
 
 /*
 ** debug.c
@@ -169,12 +201,19 @@ void dumptks(const struct list_t* tks);
 
 void _assert_internal(int line, const char* file, const char* assertion);
 
-#define assert(cond) if (!(cond)) { _assert_internal(__LINE__, __FILE__, #cond); }
+#define assert(cond)                                 \
+    if (!(cond)) {                                   \
+        _assert_internal(__LINE__, __FILE__, #cond); \
+    }
 #else
 #define assert(cond)
 #endif  // #ifdef DEBUG
 
-#define debugln(...) { fprintf(stderr, __VA_ARGS__); putc('\n', stderr); }
+#define debugln(...)                  \
+    {                                 \
+        fprintf(stderr, __VA_ARGS__); \
+        putc('\n', stderr);           \
+    }
 
 /*
 ** global
@@ -189,7 +228,5 @@ extern const char* g_prog;
 #define ANSI_CYAN "\e[1;36m"
 #define ANSI_WHITE "\e[1;37m"
 #define ANSI_RST "\e[0m"
-// #define RED "\x1B[31m"
-// #define GRN "\x1B[32m"
 
 #endif  // __CC_H__

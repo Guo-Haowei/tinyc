@@ -1,7 +1,12 @@
-// #include "stdio.h"
+// #include 123
+// #include "abc"
+#include
+#include 123
+#include "abc"
 #warning
-#warning "this is a warning"
-#error "this is an error"
+#warning this is a warning
+#error
+#error this is an error
 
 int main() {
     // printf("Hello, \"%s\"\n", "cc");

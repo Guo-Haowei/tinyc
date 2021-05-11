@@ -48,6 +48,8 @@ struct list_t* preproc(struct list_t* tks) {
         }
 
         if (!is_preproc) {
+            list_push_back(ntks, tk);
+
             int len = tk->end - tk->start;
             assert(len > 0);
             it = it->next;
@@ -75,6 +77,26 @@ struct list_t* preproc(struct list_t* tks) {
         }
 
         if (tkeqstr(kw, "include")) {
+            list_pop_front(struct Token*, stmt);
+            if (list_empty(stmt)) {
+                /// TODO: error recovery
+                error_after_tk(LEVEL_ERROR, kw, "#include expects \"FILENAME\"");
+                list_delete(stmt);
+                continue;
+            }
+
+            const struct Token* incl = list_front(struct Token*, stmt);
+            if (incl->kind != TOKEN_STRING) {
+                error_tk(LEVEL_ERROR, incl, "#include expects \"FILENAME\"");
+                list_delete(stmt);
+                continue;
+            }
+
+            struct string_view inclpath;
+            inclpath.len = incl->end - incl->start;
+            inclpath.start = incl->start;
+            filepath(incl->path, &inclpath);
+            panic("TODO: implement #include \"FILENAME\"");
         } else {
             debugln("unknow preprocessor directive #%.*s", kwlen, kw->start);
             panic("TODO: implement");

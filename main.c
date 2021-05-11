@@ -1,7 +1,5 @@
 #include "cc.h"
 
-const char* g_prog;
-
 static void usage() {
     fprintf(stderr,
             "Usage: %s [options] file...\n"
@@ -26,6 +24,9 @@ int main(int argc, const char** argv) {
     init_preproc();
 
     struct list_t* tks = lex(argv[1]);
+    check_should_exit();
+
+    dumptks(tks);
     list_delete(tks);
 
     shutdown_preproc();

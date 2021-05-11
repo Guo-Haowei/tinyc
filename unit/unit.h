@@ -25,8 +25,8 @@ static int _total;
         if (!same) {                                                         \
             printf(ANSI_RED "\"%s == %s\"" ANSI_RST " failed on line %d.\n", \
                    #A, #B, __LINE__);                                        \
-            printf("expect: " ANSI_GRN "%d\n" ANSI_RST, b);                  \
-            printf("actual: " ANSI_RED "%d\n" ANSI_RST, a);                  \
+            printf("expect: " ANSI_GRN "%d" ANSI_RST "\n", b);               \
+            printf("actual: " ANSI_RED "%d" ANSI_RST "\n", a);               \
         }                                                                    \
     }
 

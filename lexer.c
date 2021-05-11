@@ -170,6 +170,7 @@ struct list_t* lex_one(const char* path, const char* source) {
         }
 
         error_loc(LEVEL_ERROR, &g_loc, "stray '%c' in program", c);
+        read();
     }
 
     return tks;

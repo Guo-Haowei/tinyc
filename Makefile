@@ -7,27 +7,19 @@ cc: $(OBJS)
 
 $(OBJS): cc.h
 
-# test: 9cc test/test.c
-# 	./9cc -test
-
-# 	@./9cc test/test.c > tmp-test1.s
-# 	@gcc -c -o tmp-test2.o test/gcc.c
-# 	@gcc -static -o tmp-test1 tmp-test1.s tmp-test2.o
-# 	@./tmp-test1
-
-# 	@./9cc test/token.c > tmp-test2.s
-# 	@gcc -static -o tmp-test2 tmp-test2.s
-# 	@./tmp-test2
-
 format:
-	clang-format -i *.c
+	clang-format -i *.h *.c unit/*
 
 clean:
 	rm cc *.o *.out
 
+### TODO: clean up .o
 unit:
-	@echo "compiling list unit test"
+	@echo "compiling unit test [list]"
 	@gcc -Wno-pointer-to-int-cast list.c debug.c unit/list.test.c -o list.out
 	@valgrind ./list.out
+	@echo "compiling unit test [string_util]"
+	@gcc preproc.c token.c list.c error.c filecache.c arena.c lexer.c string_util.c debug.c unit/string_util.test.c -o string_util.out
+	@./string_util.out
 
 .PHONY: clean format unit
