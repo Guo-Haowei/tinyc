@@ -67,6 +67,7 @@ struct list_t* preproc(struct list_t* tks) {
         const struct Token* kw = list_front(struct Token*, stmt);
         const int kwlen = kw->end - kw->start;
 
+        // #error
         if (tkeqstr(kw, "error") || tkeqstr(kw, "warning")) {
             int level = tkeqstr(kw, "error") ? LEVEL_ERROR : LEVEL_WARNING;
             const struct Token* last = list_back(struct Token*, stmt);
@@ -76,6 +77,7 @@ struct list_t* preproc(struct list_t* tks) {
             continue;
         }
 
+        // #include
         if (tkeqstr(kw, "include")) {
             list_pop_front(struct Token*, stmt);
             if (list_empty(stmt)) {
@@ -85,18 +87,27 @@ struct list_t* preproc(struct list_t* tks) {
                 continue;
             }
 
-            const struct Token* incl = list_front(struct Token*, stmt);
-            if (incl->kind != TOKEN_STRING) {
-                error_tk(LEVEL_ERROR, incl, "#include expects \"FILENAME\"");
+            const struct Token* filename = list_pop_front(struct Token*, stmt);
+            if (filename->kind != TOKEN_STRING) {
+                error_tk(LEVEL_ERROR, filename, "#include expects \"FILENAME\"");
                 list_delete(stmt);
                 continue;
             }
 
-            struct slice_t inclpath;
-            inclpath.len = incl->end - incl->start;
-            inclpath.start = incl->start;
-            filepath(incl->path, &inclpath);
-            panic("TODO: implement #include \"FILENAME\"");
+            struct slice_t h;
+            h.len = filename->end - filename->start - 2;
+            h.start = filename->start + 1;
+            const char* fullpath = path_concat(filename->path, &h);
+
+            struct FileCache* fcache = fcache_get(fullpath);
+            if (fcache == NULL) {
+                error_tk(LEVEL_FATAL, filename, "%.*s: No such file or directory", h.len, h.start);
+            }
+
+            for (struct list_node_t* it = fcache->rawtks->back; it; it = it->prev) {
+                list_push_front(ntks, it->data);
+            }
+
         } else {
             debugln("unknow preprocessor directive #%.*s", kwlen, kw->start);
             panic("TODO: implement");

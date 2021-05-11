@@ -56,6 +56,14 @@ TEST(string_util_test, path_concat) {
         const char* path = path_concat(c, &h);
         EXPECT_EQ(path, std::string("cc.h"));
     }
+    {
+        const char* c = "test/hello.c";
+        struct slice_t h;
+        h.start = "dummy.h";
+        h.len = strlen(h.start);
+        const char* path = path_concat(c, &h);
+        EXPECT_EQ(path, std::string("test/dummy.h"));
+    }
 }
 
 #if 0

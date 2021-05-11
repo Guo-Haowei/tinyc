@@ -125,8 +125,7 @@ const char* path_concat(const char* basefile, const struct slice_t* path) {
     }
     *p = '\0';
 
-    /// TODO: string builder
-    const int cpylen = sizeof(s_buffer) - (s_buffer - p);
+    const int cpylen = MIN(path->len, sizeof(s_buffer) - (s_buffer - p));
     strncpy(p, path->start, cpylen);
 
     shortenpath(s_buffer, sizeof(s_buffer));

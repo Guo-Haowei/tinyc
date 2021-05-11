@@ -20,7 +20,6 @@ int main(int argc, const char** argv) {
 
     init_fcache();
 
-    // init -DDEBUG=1
     init_preproc();
 
     struct list_t* tks = lex(argv[1]);

@@ -1,12 +1,7 @@
 // #include 123
-// #include "abc"
-#include
-#include 123
-#include "abc"
+#include "../test/h.h"
 #warning
 #warning this is a warning
-#error
-#error this is an error
 
 int main() {
     // printf("Hello, \"%s\"\n", "cc");
