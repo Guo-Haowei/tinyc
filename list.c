@@ -15,7 +15,7 @@ struct list_t* _list_new() {
 }
 
 void _list_delete(struct list_t** plist) {
-    cassert(plist && *plist);
+    cassert(*plist);
     _list_clear(*plist);
     free(*plist);
     *plist = NULL;

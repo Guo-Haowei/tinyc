@@ -37,6 +37,6 @@ void dumptks(const struct list_t* tks) {
                 tk->path,
                 tk->ln,
                 tk->col);
-        debugln(" [\e[1;31m%.*s\e[0m]", len, tk->start);
+        debugln(" [\e[1;31m%s\e[0m]", tk->raw);
     }
 }

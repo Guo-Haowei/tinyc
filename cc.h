@@ -123,6 +123,30 @@ void* _list_pop_back(struct list_t* list);
 #define list_pop_back(t, l) ((t)_list_pop_back(l))
 
 /*
+** map.c
+*/
+// This is a dummy array, with log(n) search time
+struct map_pair_t {
+    const char* key;
+    void* data;
+};
+
+struct map_t {
+    struct list_t* list;
+};
+
+struct map_t* map_new();
+void map_delete(struct map_t* map);
+
+#define map_empty(m) ((m)->list->len == 0)
+#define map_len(m) ((m)->list->len)
+
+void _map_insert(struct map_t* map, const char* key, void* data);
+#define map_insert(m, k, e) _map_insert(m, k, (void*)e);
+
+struct map_pair_t* map_find(struct map_t* map, const char* key);
+
+/*
 ** token.c
 */
 enum {
@@ -143,7 +167,7 @@ struct Token {
     const char* end;         // token end
     const char* macroStart;  // start of the macro expanded from, if there is one
     const char* macroEnd;    // end of the macro expanded from, if there is one
-    const char* extra;       // to store # or ##
+    char* raw;               // to store # or ##
     int col;                 // colomn number
     int ln;                  // line number
     int kind;                // kind of token

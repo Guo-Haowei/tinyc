@@ -56,11 +56,18 @@ static struct Token* token_new(int kind) {
     tk->end = g_loc.p;
     tk->macroStart = NULL;
     tk->macroEnd = NULL;
-    tk->extra = NULL;
+    tk->raw = NULL;
     tk->col = g_loc.col;
     tk->ln = g_loc.ln;
     tk->kind = kind;
     return tk;
+}
+
+static void token_make_raw(struct Token* tk) {
+    size_t len = tk->end - tk->start;
+    tk->raw = alloc(len + 1);
+    strncpy(tk->raw, tk->start, len);
+    tk->raw[len] = '\0';
 }
 
 static void add_dec(struct list_t* tks) {
@@ -71,6 +78,7 @@ static void add_dec(struct list_t* tks) {
         ++tk->end;
     }
 
+    token_make_raw(tk);
     list_push_back(tks, tk);
     return;
 }
@@ -87,6 +95,7 @@ static void add_symbol(struct list_t* tks) {
         }
     }
 
+    token_make_raw(tk);
     list_push_back(tks, tk);
     return;
 }
@@ -112,6 +121,7 @@ static void add_string(struct list_t* tks) {
         }
     }
 
+    token_make_raw(tk);
     list_push_back(tks, tk);
     return;
 }
@@ -123,6 +133,7 @@ static void add_punct(struct list_t* tks) {
     read();
     ++tk->end;
 
+    token_make_raw(tk);
     list_push_back(tks, tk);
     return;
 }

@@ -3,7 +3,7 @@
 
 static void test_list(struct list_t* list, const size_t len, ...);
 
-TEST(list_test, basic_operation) {
+TEST(list_test, basic) {
     list_new(list);
 
     // size
