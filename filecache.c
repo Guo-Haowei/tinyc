@@ -1,30 +1,36 @@
 #include "cc.h"
 
 static const char* readfile(const char* path);
-static struct list_t* g_fcache;
+static struct map_t* g_filemap;
 
 void init_fcache() {
-    cassert(!g_fcache);
-    g_fcache = _list_new();
+    cassert(!g_filemap);
+    g_filemap = map_new();
+
+    // add built-in files
 }
 
 void shutdown_fcache() {
-    cassert(g_fcache);
-    for (struct list_node_t* n = g_fcache->front; n; n = n->next) {
-        struct FileCache* cache = (struct FileCache*)(n->data);
+    cassert(g_filemap);
+    for (struct list_node_t* it = g_filemap->list->front; it; it = it->next) {
+        struct map_pair_t* pair = (struct map_pair_t*)(it->data);
+        struct FileCache* cache = (struct FileCache*)(pair->data);
         list_delete(cache->lines);
         list_delete(cache->rawtks);
     }
-    list_delete(g_fcache);
+
+    map_delete(g_filemap);
+    g_filemap = NULL;
 }
 
 struct FileCache* fcache_get(const char* path) {
+    cassert(g_filemap);
+
     // check existance
-    for (struct list_node_t* n = g_fcache->front; n; n = n->next) {
-        struct FileCache* cache = (struct FileCache*)(n->data);
-        if (strncmp(cache->path, path, sizeof(cache->path)) == 0) {
-            return cache;
-        }
+    struct map_pair_t* pair = map_find(g_filemap, path);
+
+    if (pair) {
+        return pair->data;
     }
 
     // read file
@@ -34,9 +40,10 @@ struct FileCache* fcache_get(const char* path) {
     }
 
     // add cache
+    // global alloc
     struct FileCache* fcache = alloc(sizeof(struct FileCache));
     fcache->source = source;
-    fcache->lines = _list_new();
+    fcache->lines = list_new();
     strncpy(fcache->path, path, sizeof(fcache->path) - 1);
 
     // add lines
@@ -54,6 +61,7 @@ struct FileCache* fcache_get(const char* path) {
             llen = lend - lbegin;
         }
 
+        // global alloc
         struct slice_t* slice = alloc(sizeof(struct slice_t));
         slice->start = lbegin;
         slice->len = llen;
@@ -61,10 +69,12 @@ struct FileCache* fcache_get(const char* path) {
         lbegin = lend + 1;  // skip new line
     }
 
+    bool succuess = map_try_insert(g_filemap, path, fcache);
+    cassert(succuess);
+
     // raw tokens
     fcache->rawtks = lex_one(path, fcache->source);
 
-    list_push_back(g_fcache, fcache);
     return fcache;
 }
 
@@ -78,6 +88,7 @@ static const char* readfile(const char* path) {
     int size = ftell(f);
     fseek(f, 0L, SEEK_SET);
 
+    // global alloc
     char* buffer = alloc(size + 1);
     fread(buffer, size, 1, f);
     fclose(f);

@@ -1,10 +1,7 @@
-// #include 123
-#include "../test/h.h"
-#warning
-#warning this is a warning
+#include "stdio.h"
 
-int main() {
-    // printf("Hello, \"%s\"\n", "cc");
-    int ab0 = 12;
-    // return 23141123-32141234;
+// this is an test
+int main(int argc, const char* argv) {
+    printf("Hello, world\n");
+    return 0;
 }

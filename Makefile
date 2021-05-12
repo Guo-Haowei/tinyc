@@ -5,7 +5,7 @@ OBJS=$(SRCS:.c=.o)
 cc: $(OBJS)
 	cc -o $@ $(OBJS) $(LDFLAGS)
 
-$(OBJS): cc.h
+$(OBJS): cc.h token.inl
 
 format:
 	@clang-format -i *.h *.c unit/*.cpp

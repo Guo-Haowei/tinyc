@@ -6,19 +6,6 @@ const char* g_prog;
 
 static void error_interal(int level, const char* path, int ln, int col, int len, const char* msg);
 
-void panic(const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    fprintf(stderr,
-            "****************************************"
-            "****************************************"
-            "\n[panic]\n\t");
-    vfprintf(stderr, fmt, args);
-    fputc('\n', stderr);
-    va_end(args);
-    exit(-1);
-}
-
 void error(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -65,7 +52,6 @@ void error_after_tk(int level, const struct Token* tk, const char* fmt, ...) {
 }
 
 static void print_line(const char* color, const struct slice_t* slice, int col, int len) {
-    putc(' ', stderr);
     for (int i = 0; i < (int)slice->len; ++i) {
         if (i == col - 1) {
             fprintf(stderr, "%s", color);
@@ -79,7 +65,7 @@ static void print_line(const char* color, const struct slice_t* slice, int col, 
 
 static void print_underline(const char* color, int col, int len) {
     fprintf(stderr, ANSI_RST "%s", color);
-    for (int i = 0; i < col; ++i) {
+    for (int i = 1; i < col; ++i) {
         putc(' ', stderr);
     }
     putc('^', stderr);
@@ -110,9 +96,11 @@ void error_interal(int level, const char* path, int ln, int col, int len, const 
     const struct slice_t* slice = list_at(struct slice_t*, fcache->lines, ln - 1);
 
     // print <space>line
+    fprintf(stderr, "  %4d | ", ln);
     print_line(color, slice, col, len);
 
     // print <space>^~~~~~~~~~~~~~
+    fprintf(stderr, "       | ");
     print_underline(color, col, len);
 
     if (level == LEVEL_FATAL) {

@@ -6,7 +6,7 @@ extern "C" {
 
 static struct list_node_t* _list_node_new();
 
-struct list_t* _list_new() {
+struct list_t* list_new() {
     struct list_t* list = malloc(sizeof(struct list_t));
     list->front = NULL;
     list->back = NULL;
@@ -14,14 +14,13 @@ struct list_t* _list_new() {
     return list;
 }
 
-void _list_delete(struct list_t** plist) {
-    cassert(*plist);
-    _list_clear(*plist);
-    free(*plist);
-    *plist = NULL;
+void list_delete(struct list_t* plist) {
+    cassert(plist);
+    list_clear(plist);
+    free(plist);
 }
 
-void _list_clear(struct list_t* list) {
+void list_clear(struct list_t* list) {
     cassert(list);
 
     while (list->len) {
@@ -85,7 +84,8 @@ void _list_push_back(struct list_t* list, void* data) {
 }
 
 void* _list_pop_front(struct list_t* list) {
-    cassert(list && list->len && list->front && list->back);
+    cassert(list);
+    cassert(list->len);
     struct list_node_t* n = list->front;
     list->front = n->next;
     if (n->next) {
@@ -101,7 +101,8 @@ void* _list_pop_front(struct list_t* list) {
 }
 
 void* _list_pop_back(struct list_t* list) {
-    cassert(list && list->len && list->front && list->back);
+    cassert(list);
+    cassert(list->len);
     struct list_node_t* n = list->back;
     list->back = n->prev;
     if (n->prev) {

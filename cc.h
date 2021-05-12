@@ -1,9 +1,9 @@
 #ifndef __CC_H__
 #define __CC_H__
-#include <stdarg.h>  // va_list
-#include <stdio.h>   // printf
-#include <stdlib.h>  // exit
-#include <string.h>  // memset
+#include "stdarg.h"  // va_list
+#include "stdio.h"   // printf
+#include "stdlib.h"  // exit
+#include "string.h"  // memset
 
 // build target
 #define DEBUG_BUILD 0
@@ -13,10 +13,6 @@
 #ifndef TARGET_BUILD
 #define TARGET_BUILD DEBUG_BUILD
 #endif  // #ifndef TARGET_BUILD
-
-#if TARGET_BUILD < DEBUG_BUILD || TARGET_BUILD > TEST_BUILD
-#error "Invalid build target"
-#endif
 
 /*
 ** types
@@ -76,8 +72,10 @@ void sstream_append(struct sstream* ss, const char* str);
 void sstream_appendfmt(struct sstream* ss, const char* fmt, ...);
 void sstream_push_back(struct sstream* ss, const char c);
 
-const char* path_concat(const char* basefile, const struct slice_t* path);
+const char* path_concat(const char* source, const char* header);
 void shortenpath(char* inpath, size_t maxsize);
+
+#define streq(str1, str2) (strcmp((str1), (str2)) == 0)
 
 /*
 ** list.c
@@ -94,33 +92,29 @@ struct list_t {
     int len;
 };
 
-struct list_t* _list_new();
-void _list_delete(struct list_t** plist);
-void _list_clear(struct list_t* list);
+struct list_t* list_new();
+void list_delete(struct list_t* plist);
+void list_clear(struct list_t* list);
+
+#define list_empty(l) (l->len == 0)
+#define list_len(l) (l->len)
 
 void* _list_back(struct list_t* list);
 void* _list_front(struct list_t* list);
 void* _list_at(struct list_t* list, int idx);
+#define list_back(T, l) ((T)_list_back(l))
+#define list_front(T, l) ((T)_list_front(l))
+#define list_at(T, l, i) ((T)_list_at(l, i))
 
 void _list_push_front(struct list_t* list, void* data);
 void _list_push_back(struct list_t* list, void* data);
-void* _list_pop_front(struct list_t* list);
-void* _list_pop_back(struct list_t* list);
-
-#define list_new(l) struct list_t* l = _list_new()
-#define list_delete(l) _list_delete(&l)
-#define list_clear(l) _list_clear(l)
-#define list_empty(l) (l->len == 0)
-#define list_len(l) (l->len)
-
-#define list_back(t, l) ((t)_list_back(l))
-#define list_front(t, l) ((t)_list_front(l))
-#define list_at(t, l, i) ((t)_list_at(l, i))
-
 #define list_push_front(l, e) _list_push_front(l, ((void*)(e)))
 #define list_push_back(l, e) _list_push_back(l, ((void*)(e)))
-#define list_pop_front(t, l) ((t)_list_pop_front(l))
-#define list_pop_back(t, l) ((t)_list_pop_back(l))
+
+void* _list_pop_front(struct list_t* list);
+void* _list_pop_back(struct list_t* list);
+#define list_pop_front(T, l) ((T)_list_pop_front(l))
+#define list_pop_back(T, l) ((T)_list_pop_back(l))
 
 /*
 ** map.c
@@ -142,7 +136,12 @@ void map_delete(struct map_t* map);
 #define map_len(m) ((m)->list->len)
 
 void _map_insert(struct map_t* map, const char* key, void* data);
+bool _map_try_insert(struct map_t* map, const char* key, void* data);
+
 #define map_insert(m, k, e) _map_insert(m, k, (void*)e);
+#define map_try_insert(m, k, e) _map_try_insert(m, k, (void*)e);
+
+/// TODO: map_try_insert
 
 struct map_pair_t* map_find(struct map_t* map, const char* key);
 
@@ -150,14 +149,10 @@ struct map_pair_t* map_find(struct map_t* map, const char* key);
 ** token.c
 */
 enum {
-    TOKEN_INVALID,
-    TOKEN_SYMBOL,
-    TOKEN_KEWWORD,
-    TOKEN_PUNCT,
-    TOKEN_INT,
-    TOKEN_CHAR,
-    TOKEN_STRING,
-    TOKEN_COUNT,
+#define TOKEN(name, symbol, kw, punct) TK_##name,
+#include "token.inl"
+#undef TOKEN
+    TK_COUNT
 };
 
 struct Token {
@@ -173,21 +168,19 @@ struct Token {
     int kind;                // kind of token
 };
 
-bool tkeqc(const struct Token* tk, int c);
-bool tkeqstr(const struct Token* tk, const char* str);
-
 /*
 ** lexer.c
 */
 struct list_t* lex_one(const char* path, const char* source);
 struct list_t* lex(const char* path);
 
+void init_gloabl();      // set up keyword, puncts
+void shutdown_global();  // clean up keywords, puncts
+
 /*
 ** preprocessor.c
 */
 struct list_t* preproc(struct list_t* tokens);
-void init_preproc();      // set up macro table
-void shutdown_preproc();  // clean up macro table
 
 /*
 ** filecache.c
@@ -226,7 +219,8 @@ void* alloc(int bytes);
 /*
 ** error.c
 */
-void panic(const char* fmt, ...);
+void _panic(int line, const char* file, const char* fmt, ...);
+#define panic(...) _panic(__LINE__, __FILE__, __VA_ARGS__)
 
 enum {
     LEVEL_WARNING,

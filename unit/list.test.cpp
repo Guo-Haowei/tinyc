@@ -4,7 +4,7 @@
 static void test_list(struct list_t* list, const size_t len, ...);
 
 TEST(list_test, basic) {
-    list_new(list);
+    struct list_t* list = list_new();
 
     // size
     EXPECT_EQ(list_len(list), 0);

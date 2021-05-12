@@ -1,6 +1,9 @@
 #include "cc.h"
 
-struct Loc g_loc;
+static struct Loc g_loc;
+static struct map_t* g_puncts;
+static struct map_t* g_keywords;
+static char g_validpuncts[128];
 
 static inline int peek() {
     return *(g_loc.p);
@@ -17,6 +20,12 @@ static int read() {
 
     ++g_loc.p;
     return c;
+}
+
+static void shift(int n) {
+    while (n-- > 0) {
+        read();
+    }
 }
 
 static void skipline() {
@@ -47,71 +56,86 @@ static inline int is_dec(const int c) {
     return '0' <= c && c <= '9';
 }
 
-static struct Token* token_new(int kind) {
-    cassert(kind > TOKEN_INVALID && kind < TOKEN_COUNT);
+static struct Token* token_new(int kind, int col, const char* start, const char* end) {
+    cassert(kind > TK_INVALID && kind < TK_COUNT);
+    // global alloc
     struct Token* tk = alloc(sizeof(struct Token));
     tk->path = g_loc.path;
     tk->source = g_loc.source;
-    tk->start = g_loc.p;
-    tk->end = g_loc.p;
+    tk->start = start;
+    tk->end = end;
     tk->macroStart = NULL;
     tk->macroEnd = NULL;
-    tk->raw = NULL;
-    tk->col = g_loc.col;
-    tk->ln = g_loc.ln;
+    tk->col = col;
+    tk->ln = g_loc.ln;  // assume token always on the same line
     tk->kind = kind;
-    return tk;
-}
 
-static void token_make_raw(struct Token* tk) {
     size_t len = tk->end - tk->start;
+    // global alloc
     tk->raw = alloc(len + 1);
     strncpy(tk->raw, tk->start, len);
     tk->raw[len] = '\0';
+    return tk;
 }
 
 static void add_dec(struct list_t* tks) {
     cassert(is_dec(peek()));
-    struct Token* tk = token_new(TOKEN_INT);
+
+    const char* start = g_loc.p;
+    const char* end = g_loc.p;
+    int col = g_loc.col;
     while (is_dec(peek())) {
         read();
-        ++tk->end;
+        ++end;
     }
 
-    token_make_raw(tk);
+    struct Token* tk = token_new(TK_CINT, col, start, end);
     list_push_back(tks, tk);
     return;
 }
 
 static void add_symbol(struct list_t* tks) {
     cassert(is_symbol(peek()));
-    struct Token* tk = token_new(TOKEN_SYMBOL);
+
+    const char* start = g_loc.p;
+    const char* end = g_loc.p;
+    int col = g_loc.col;
     for (;;) {
         read();
-        ++tk->end;
+        ++end;
         int c = peek();
         if (!is_symbol(c) && !is_dec(c)) {
             break;
         }
     }
 
-    token_make_raw(tk);
+    struct Token* tk = token_new(TK_SYMBOL, col, start, end);
+
+    // check if keyword
+    struct map_pair_t* pair = map_find(g_keywords, tk->raw);
+    if (pair) {
+        tk->kind = (int)pair->data;
+    }
+
     list_push_back(tks, tk);
     return;
 }
 
 static void add_string(struct list_t* tks) {
     cassert(peek() == '"');
-    struct Token* tk = token_new(TOKEN_STRING);
+
+    const char* start = g_loc.p;
+    const char* end = g_loc.p;
+    int col = g_loc.col;
     for (;;) {
         read();
-        ++tk->end;
+        ++end;
         /// TODO: handle escape sequence
-        const int c = *(tk->end);
+        const int c = *(end);
         if (c == '"') {
-            if (*(tk->end - 1) != '\\') {
+            if (*(end - 1) != '\\') {
                 read();
-                ++tk->end;
+                ++end;
                 break;
             }
         }
@@ -121,32 +145,98 @@ static void add_string(struct list_t* tks) {
         }
     }
 
-    token_make_raw(tk);
+    struct Token* tk = token_new(TK_CSTR, col, start, end);
+    list_push_back(tks, tk);
+    return;
+}
+
+static void add_char(struct list_t* tks) {
+    cassert(peek() == '\'');
+
+    const char* start = g_loc.p;
+    const char* end = g_loc.p;
+    int col = g_loc.col;
+    for (;;) {
+        read();
+        ++end;
+        /// TODO: handle escape sequence
+        const int c = *(end);
+        if (c == '\'') {
+            if (*(end - 1) != '\\') {
+                read();
+                ++end;
+                break;
+            }
+        }
+
+        if (c == '\0') {
+            break;
+        }
+    }
+
+    struct Token* tk = token_new(TK_CCHAR, col, start, end);
     list_push_back(tks, tk);
     return;
 }
 
 static void add_punct(struct list_t* tks) {
-    struct Token* tk = token_new(TOKEN_PUNCT);
+    // clang-format off
+    static const char* s_puncts[] = {
+        "+=", "++", "-=", "--", "->", "*=", "/=", "%=", "==", "!=", "##", ">=",
+        ">>=", ">>", "<=", "<<=", "<<", "&&", "||", "&=", "|=", "^=", "..."
+    };
+    // clang-format on
 
-    // only one line punct
-    read();
-    ++tk->end;
+    for (size_t idx = 0; idx < ARRAY_LEN(s_puncts); ++idx) {
+        const char* punct = s_puncts[idx];
+        size_t len = strlen(punct);
+        if (strncmp(punct, g_loc.p, len) == 0) {
+            struct map_pair_t* it = map_find(g_puncts, punct);
+            cassert(it);
+            int kind = (int)(it->data);
+            struct Token* tk = token_new(kind, g_loc.col, g_loc.p, g_loc.p + len);
+            list_push_back(tks, tk);
+            shift(len);
+            return;
+        }
+    }
 
-    token_make_raw(tk);
+    char punct[4] = {g_loc.p[0], '\0'};
+    struct map_pair_t* it = map_find(g_puncts, punct);
+    cassert(it);
+    int kind = (int)(it->data);
+    struct Token* tk = token_new(kind, g_loc.col, g_loc.p, g_loc.p + 1);
     list_push_back(tks, tk);
-    return;
+    read();
 }
 
 struct list_t* lex_one(const char* path, const char* source) {
-    list_new(tks);
+    struct list_t* tks = list_new();
     loc_reset(path, source);
 
     int c;
     while ((c = peek())) {
-        // one line comment
+        // comment
         if (strncmp(g_loc.p, "//", 2) == 0) {
             skipline();
+            continue;
+        }
+
+        // comment block
+        if (strncmp(g_loc.p, "/*", 2) == 0) {
+            shift(2);  // skip '/*'
+
+            for (;;) {
+                if (g_loc.p[0] == '\0') {
+                    panic("unexpected EOF");
+                }
+                if (strncmp(g_loc.p, "*/", 2) == 0) {
+                    shift(2);  // skip '*/'
+                    break;
+                }
+                read();
+            }
+
             continue;
         }
 
@@ -156,15 +246,15 @@ struct list_t* lex_one(const char* path, const char* source) {
             continue;
         }
 
-        // integer literal
-        if (is_dec(c)) {
-            add_dec(tks);
-            continue;
-        }
-
         // symbol
         if (is_symbol(c)) {
             add_symbol(tks);
+            continue;
+        }
+
+        // integer literal
+        if (is_dec(c)) {
+            add_dec(tks);
             continue;
         }
 
@@ -174,13 +264,20 @@ struct list_t* lex_one(const char* path, const char* source) {
             continue;
         }
 
-        // punct
-        if (strchr("#(){}=,;", c)) {
+        // char literal
+        if (c == '\'') {
+            add_char(tks);
+            continue;
+        }
+
+        // try add punct
+        if (strchr(g_validpuncts, c)) {
             add_punct(tks);
             continue;
         }
 
-        error_loc(LEVEL_ERROR, &g_loc, "stray '%c' in program", c);
+        /// TODO: stray character
+        error_loc(LEVEL_FATAL, &g_loc, "stray '%c' in program", c);
         read();
     }
 
@@ -198,4 +295,48 @@ struct list_t* lex(const char* path) {
     struct list_t* tks = preproc(fcache->rawtks);
 
     return tks;
+}
+
+void init_gloabl() {
+    cassert(g_puncts == NULL);
+    cassert(g_keywords == NULL);
+
+    g_puncts = map_new();
+#define TOKEN(name, symbol, kw, punct)                             \
+    if (punct) {                                                   \
+        bool result = map_try_insert(g_puncts, symbol, TK_##name); \
+        cassert(result);                                           \
+    }
+#include "token.inl"
+#undef TOKEN
+
+    g_keywords = map_new();
+#define TOKEN(name, symbol, kw, punct)                               \
+    if (kw) {                                                        \
+        bool result = map_try_insert(g_keywords, symbol, TK_##name); \
+        cassert(result);                                             \
+    }
+#include "token.inl"
+#undef TOKEN
+
+    size_t idx = 0;
+#define TOKEN(name, symbol, kw, punct)  \
+    if (punct == 1) {                   \
+        g_validpuncts[idx] = symbol[0]; \
+        ++idx;                          \
+    }
+#include "token.inl"
+#undef TOKEN
+    cassert(idx < sizeof(g_validpuncts));
+}
+
+void shutdown_global() {
+    cassert(g_puncts != NULL);
+    cassert(g_keywords != NULL);
+
+    map_delete(g_puncts);
+    map_delete(g_keywords);
+
+    g_puncts = NULL;
+    g_keywords = NULL;
 }

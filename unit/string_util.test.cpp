@@ -41,41 +41,28 @@ TEST(string_util_test, shortenpath) {
 
 TEST(string_util_test, path_concat) {
     {
-        const char* c = "foo.c";
-        struct slice_t h;
-        h.start = "../bar.h";
-        h.len = strlen(h.start);
-        const char* path = path_concat(c, &h);
+        const char* cfile = "foo.c";
+        const char* path = path_concat(cfile, "../bar.h");
         EXPECT_EQ(path, std::string("../bar.h"));
     }
     {
-        const char* c = "cc/unit/test.cpp";
-        struct slice_t h;
-        h.start = "../../cc.h";
-        h.len = strlen(h.start);
-        const char* path = path_concat(c, &h);
+        const char* cfile = "cc/unit/test.cpp";
+        const char* path = path_concat(cfile, "../../cc.h");
         EXPECT_EQ(path, std::string("cc.h"));
     }
     {
-        const char* c = "test/hello.c";
-        struct slice_t h;
-        h.start = "dummy.h";
-        h.len = strlen(h.start);
-        const char* path = path_concat(c, &h);
+        const char* cfile = "test/hello.c";
+        const char* path = path_concat(cfile, "dummy.h");
         EXPECT_EQ(path, std::string("test/dummy.h"));
     }
-}
-
-#if 0
-
-
     {
-        struct string_view sv;
-        sv.start = "../bar.h";
-        sv.len = strlen(sv.start);
-        const char* path = filepath("../basepath/foo.c", &sv);
-        expect_eq(strcmp(path, "../basepath/../bar.h"), 0);
-        printf("path is \"%s\"\n", path);
+        const char* cfile = "test/hello.c";
+        const char* path = path_concat(cfile, "./dummy.h");
+        EXPECT_EQ(path, std::string("test/dummy.h"));
     }
-
-#endif
+    {
+        const char* cfile = "test/compiler/pp.c";
+        const char* path = path_concat(cfile, "../include/stdio.h");
+        EXPECT_EQ(path, std::string("test/include/stdio.h"));
+    }
+}

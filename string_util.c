@@ -77,19 +77,19 @@ void shortenpath(char* inpath, size_t maxsize) {
         }
     }
 
-    list_new(dirs);
+    struct list_t* dirs = list_new();
 
     for (int i = 0; i < pathlistlen; ++i) {
         const char* dir = pathlist[i];
-        if (*dir == '\0') {
+        if (dir[0] == '\0') {
             continue;
         }
 
-        if (strcmp(dir, ".") == 0) {
+        if (dir[0] == '.' && dir[1] == '\0') {
             continue;
         }
 
-        if (strcmp(dir, "..") == 0) {
+        if (streq(dir, "..")) {
             if (!list_empty(dirs)) {
                 list_pop_back(const char*, dirs);
                 continue;
@@ -114,9 +114,9 @@ void shortenpath(char* inpath, size_t maxsize) {
     list_delete(dirs);
 }
 
-const char* path_concat(const char* basefile, const struct slice_t* path) {
+const char* path_concat(const char* source, const char* header) {
     static char s_buffer[MAX_PATH_LEN];
-    strncpy(s_buffer, basefile, sizeof(s_buffer) - 1);
+    strncpy(s_buffer, source, sizeof(s_buffer) - 1);
 
     char* p = s_buffer;
     char* last_slash = strrchr(s_buffer, '/');
@@ -125,8 +125,8 @@ const char* path_concat(const char* basefile, const struct slice_t* path) {
     }
     *p = '\0';
 
-    const int cpylen = MIN(path->len, sizeof(s_buffer) - (s_buffer - p));
-    strncpy(p, path->start, cpylen);
+    const int minlen = MIN(strlen(header), sizeof(s_buffer) - (s_buffer - p));
+    strncpy(p, header, minlen);
 
     shortenpath(s_buffer, sizeof(s_buffer));
 

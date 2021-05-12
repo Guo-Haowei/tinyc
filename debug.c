@@ -2,25 +2,34 @@
 
 void _assert_internal(int line, const char* file, const char* assertion) {
     debugln(
-        "assertion (%s) \e[0;31mfailed\e[0m\n\ton line %d in file '%s'",
+        "assertion (%s) " ANSI_RED "failed" ANSI_RST "\n\ton line %d, in file \"%s\"",
         assertion,
         line,
         file);
     exit(-1);
 }
 
-const char* tk2str(int kind) {
-    static const char* kNames[TOKEN_COUNT] = {
-        "<error-kind>",
-        "Symbol",
-        "Keyword",
-        "Punct",
-        "Integer",
-        "Char",
-        "String",
-    };
+void _panic(int line, const char* file, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    fprintf(stderr,
+            "****************************************"
+            "****************************************"
+            "\n" ANSI_RED "[panic]" ANSI_RST "\n\t\"");
+    vfprintf(stderr, fmt, args);
+    debugln("\" on line %d, in file \"%s\"", line, file);
+    va_end(args);
+    exit(-1);
+}
 
-    cassert(kind > TOKEN_INVALID && kind < TOKEN_COUNT);
+const char* tk2str(int kind) {
+    cassert(kind >= 0 && kind < TK_COUNT);
+
+    static const char* kNames[TK_COUNT] = {
+#define TOKEN(name, symbol, kw, punct) #name,
+#include "token.inl"
+#undef TOKEN
+    };
 
     return kNames[kind];
 }
@@ -32,7 +41,7 @@ void dumptks(const struct list_t* tks) {
         int len = tk->end - tk->start;
         cassert(len > 0);
         fprintf(stderr,
-                "[%7s] [f: " ANSI_GRN "\"%s\"" ANSI_RST ", ln: %2d, col: %2d]",
+                "[%-9s] [f: " ANSI_GRN "\"%s\"" ANSI_RST ", ln: %2d, col: %2d]",
                 tk2str(tk->kind),
                 tk->path,
                 tk->ln,

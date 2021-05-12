@@ -8,6 +8,7 @@ static void usage() {
             g_prog);
 }
 
+/// TODO: extract exe path
 int main(int argc, const char** argv) {
     g_prog = *argv;
 
@@ -17,19 +18,19 @@ int main(int argc, const char** argv) {
     }
 
     init_arena();
-
+    init_gloabl();
     init_fcache();
 
-    init_preproc();
+    // for each file
+    {
+        struct list_t* tks = lex(argv[1]);
+        check_should_exit();
+        dumptks(tks);
+        list_delete(tks);
+    }
 
-    struct list_t* tks = lex(argv[1]);
-    check_should_exit();
-
-    dumptks(tks);
-    list_delete(tks);
-
-    shutdown_preproc();
     shutdown_fcache();
+    shutdown_global();
 
     free_arena();
     shutdown_arena();
