@@ -36,7 +36,10 @@
 #endif  // #ifdef MIN
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
+#define CAST(T, a) ((T)(a))
+
 #define MAX_PATH_LEN 256
+#define MAX_SCOPE_NAME_LEN 64
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,6 +67,7 @@ struct sstream {
     sstream_reserve(&name, capacity)
 
 void sstream_reserve(struct sstream* ss, int cap);
+void sstream_reset(struct sstream* ss);
 void sstream_clear(struct sstream* ss);
 
 const char* sstream_get(struct sstream* ss);
@@ -174,13 +178,85 @@ struct Token {
 struct list_t* lex_one(const char* path, const char* source);
 struct list_t* lex(const char* path);
 
-void init_gloabl();      // set up keyword, puncts
+void init_global();      // set up keyword, puncts
 void shutdown_global();  // clean up keywords, puncts
 
 /*
 ** preprocessor.c
 */
 struct list_t* preproc(struct list_t* tokens);
+
+/*
+** datatype.c
+*/
+enum {
+    DT_INVALID,
+    DT_INT,
+    DT_CHAR,
+    DT_VOID,
+
+    DT_ARRAY,
+    DT_PTR,
+
+    DT_COUNT
+};
+
+struct DataType {
+    int kind;
+    int sizeInByte;
+    int arrLen;
+    bool mut;
+    struct DataType* base;
+};
+
+struct DataType* datatype_new(int kind, bool mut);
+
+// user free
+const char* datatype_string(const struct DataType* dt);
+
+/*
+** parser.c
+*/
+enum {
+    SYMBOL_INVALID,
+    SYMBOL_VAR,
+    SYMBOL_FUNC,
+    SYMBOL_ENUM,
+    SYMBOL_STRUCT,
+    SYMBOL_COUNT
+};
+
+enum {
+    SCOPE_GLOBAL,
+    SCOPE_FUNCT,
+    SCOPE_STMT
+};
+
+struct Node;
+
+struct Symbol {
+    int kind;             // symbol kind
+    struct Token* symbol;
+
+    // function
+    struct DataType* retType;
+    struct list_t* params;
+    struct Node* definition;
+    // variable
+    struct DataType* dataType;
+
+    struct Symbol* prev;  // for travel back
+};
+
+enum NodeKind {
+    ND_INVALID,
+};
+
+struct Node {
+    int dummy;
+};
+
+struct Node* parse(struct list_t* tks);
 
 /*
 ** filecache.c
@@ -212,9 +288,12 @@ struct FileCache* fcache_get(const char* path);
 */
 void init_arena();
 void shutdown_arena();
-void free_arena();
 
-void* alloc(int bytes);
+void free_arena();
+void reset_tmp_arena();
+
+void* allocg(size_t bytes);
+void* alloct(size_t bytes);
 
 /*
 ** error.c
@@ -225,7 +304,7 @@ void _panic(int line, const char* file, const char* fmt, ...);
 enum {
     LEVEL_WARNING,
     LEVEL_ERROR,
-    LEVEL_FATAL,
+    LEVEL_FATAL
 };
 
 void error(const char* fmt, ...);
@@ -238,7 +317,13 @@ void check_should_exit();
 ** debug.c
 */
 const char* tk2str(int kind);
+const char* tk2prettystr(int kind);
+
+const char* dt2str(int kind);
+
 void dumptks(const struct list_t* tks);
+
+void dumpfunc(FILE* f, const struct Symbol* func);
 
 void _assert_internal(int line, const char* file, const char* assertion);
 

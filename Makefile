@@ -1,4 +1,4 @@
-CFLAGS=-Wall -Wextra -std=c11 -g
+CFLAGS=-Wall -Wextra -Wno-pointer-to-int-cast -std=c11 -g
 SRCS=$(wildcard *.c)
 OBJS=$(SRCS:.c=.o)
 

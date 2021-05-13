@@ -5,7 +5,7 @@ static struct map_t* g_puncts;
 static struct map_t* g_keywords;
 static char g_validpuncts[128];
 
-static inline int peek() {
+static int peek() {
     return *(g_loc.p);
 }
 
@@ -58,8 +58,7 @@ static inline int is_dec(const int c) {
 
 static struct Token* token_new(int kind, int col, const char* start, const char* end) {
     cassert(kind > TK_INVALID && kind < TK_COUNT);
-    // global alloc
-    struct Token* tk = alloc(sizeof(struct Token));
+    struct Token* tk = allocg(sizeof(struct Token));
     tk->path = g_loc.path;
     tk->source = g_loc.source;
     tk->start = start;
@@ -71,8 +70,7 @@ static struct Token* token_new(int kind, int col, const char* start, const char*
     tk->kind = kind;
 
     size_t len = tk->end - tk->start;
-    // global alloc
-    tk->raw = alloc(len + 1);
+    tk->raw = allocg(len + 1);
     strncpy(tk->raw, tk->start, len);
     tk->raw[len] = '\0';
     return tk;
@@ -180,20 +178,12 @@ static void add_char(struct list_t* tks) {
 }
 
 static void add_punct(struct list_t* tks) {
-    // clang-format off
-    static const char* s_puncts[] = {
-        "+=", "++", "-=", "--", "->", "*=", "/=", "%=", "==", "!=", "##", ">=",
-        ">>=", ">>", "<=", "<<=", "<<", "&&", "||", "&=", "|=", "^=", "..."
-    };
-    // clang-format on
-
-    for (size_t idx = 0; idx < ARRAY_LEN(s_puncts); ++idx) {
-        const char* punct = s_puncts[idx];
+    for (struct list_node_t* it = g_puncts->list->front; it; it = it->next) {
+        struct map_pair_t* pair =((struct map_pair_t*)(it->data));
+        const char* punct = pair->key;
         size_t len = strlen(punct);
         if (strncmp(punct, g_loc.p, len) == 0) {
-            struct map_pair_t* it = map_find(g_puncts, punct);
-            cassert(it);
-            int kind = (int)(it->data);
+            int kind = (int)(pair->data);
             struct Token* tk = token_new(kind, g_loc.col, g_loc.p, g_loc.p + len);
             list_push_back(tks, tk);
             shift(len);
@@ -201,13 +191,7 @@ static void add_punct(struct list_t* tks) {
         }
     }
 
-    char punct[4] = {g_loc.p[0], '\0'};
-    struct map_pair_t* it = map_find(g_puncts, punct);
-    cassert(it);
-    int kind = (int)(it->data);
-    struct Token* tk = token_new(kind, g_loc.col, g_loc.p, g_loc.p + 1);
-    list_push_back(tks, tk);
-    read();
+    return;
 }
 
 struct list_t* lex_one(const char* path, const char* source) {
@@ -297,7 +281,7 @@ struct list_t* lex(const char* path) {
     return tks;
 }
 
-void init_gloabl() {
+void init_global() {
     cassert(g_puncts == NULL);
     cassert(g_keywords == NULL);
 

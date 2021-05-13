@@ -19,6 +19,10 @@ void sstream_reserve(struct sstream* ss, int cap) {
     return;
 }
 
+void sstream_reset(struct sstream* ss) {
+    ss->tail = ss->head;
+}
+
 void sstream_clear(struct sstream* ss) {
     if (ss->head) {
         free(ss->head);

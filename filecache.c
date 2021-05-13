@@ -40,8 +40,7 @@ struct FileCache* fcache_get(const char* path) {
     }
 
     // add cache
-    // global alloc
-    struct FileCache* fcache = alloc(sizeof(struct FileCache));
+    struct FileCache* fcache = allocg(sizeof(struct FileCache));
     fcache->source = source;
     fcache->lines = list_new();
     strncpy(fcache->path, path, sizeof(fcache->path) - 1);
@@ -61,8 +60,7 @@ struct FileCache* fcache_get(const char* path) {
             llen = lend - lbegin;
         }
 
-        // global alloc
-        struct slice_t* slice = alloc(sizeof(struct slice_t));
+        struct slice_t* slice = allocg(sizeof(struct slice_t));
         slice->start = lbegin;
         slice->len = llen;
         list_push_back(fcache->lines, slice);
@@ -88,8 +86,7 @@ static const char* readfile(const char* path) {
     int size = ftell(f);
     fseek(f, 0L, SEEK_SET);
 
-    // global alloc
-    char* buffer = alloc(size + 1);
+    char* buffer = allocg(size + 1);
     fread(buffer, size, 1, f);
     fclose(f);
 

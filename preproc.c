@@ -131,5 +131,23 @@ struct list_t* preproc(struct list_t* tks) {
         list_delete(stmt);
     }
 
+    struct Token* begin = alloct(sizeof(struct Token));
+    begin->kind = TK_BEGIN;
+    begin->path = "";
+    begin->source = "";
+    begin->raw = "";
+    list_push_front(ntks, begin);
+
+    struct Token* tk = list_back(struct Token*, ntks);
+
+    struct Token* end = alloct(sizeof(struct Token));
+    end->kind = TK_END;
+    end->path = "";
+    end->source = "";
+    end->raw = "";
+    end->ln = tk->ln;
+    end->col = tk->col;
+    list_push_back(ntks, end);
+
     return ntks;
 }

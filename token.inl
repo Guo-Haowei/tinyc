@@ -4,14 +4,19 @@
 
 //    enum       look-up name    kw    punct-length
 TOKEN(INVALID,   "<error>"     , 0,    0)
+TOKEN(BEGIN,     "<begin>"     , 0,    0)
+TOKEN(END,       "<end>"       , 0,    0)
 TOKEN(SYMBOL,    "<symbol>"    , 0,    0)
 
 // keywords
 TOKEN(KW_CONST,  "const"       , 1,    0)
 TOKEN(KW_CHAR,   "char"        , 1,    0)
+TOKEN(KW_ENUM,   "enum"        , 1,    0)
 TOKEN(KW_EXTERN, "extern"      , 1,    0)
 TOKEN(KW_INT,    "int"         , 1,    0)
 TOKEN(KW_RETURN, "return"      , 1,    0)
+TOKEN(KW_STRUCT, "struct"      , 1,    0)
+TOKEN(KW_VOID,   "void"        , 1,    0)
 
 TOKEN(ADDEQ,     "+="          , 0,    2)
 TOKEN(ADDADD,    "++"          , 0,    2)

@@ -29,6 +29,7 @@ bool _map_try_insert(struct map_t* map, const char* key, void* data) {
     node->key = key;
     node->data = data;
     list_push_back(map->list, node);
+    return true;
 }
 
 void _map_insert(struct map_t* map, const char* key, void* data) {

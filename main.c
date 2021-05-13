@@ -9,6 +9,7 @@ static void usage() {
 }
 
 /// TODO: extract exe path
+///   handle command line arguments
 int main(int argc, const char** argv) {
     g_prog = *argv;
 
@@ -18,20 +19,30 @@ int main(int argc, const char** argv) {
     }
 
     init_arena();
-    init_gloabl();
+    init_global();
     init_fcache();
 
     // for each file
     {
+        // lexer
+        debugln("****** lexing ******");
         struct list_t* tks = lex(argv[1]);
-        check_should_exit();
         dumptks(tks);
+        check_should_exit();
+
+        // parser
+        debugln("****** parsing ******");
+        parse(tks);
+        check_should_exit();
+
+        // validator
+        debugln("****** validaing ******");
+
         list_delete(tks);
+        reset_tmp_arena();
     }
 
     shutdown_fcache();
     shutdown_global();
-
-    free_arena();
     shutdown_arena();
 }

@@ -33,6 +33,8 @@ void error_loc(int level, const struct Loc* loc, const char* fmt, ...) {
 }
 
 void error_tk(int level, const struct Token* tk, const char* fmt, ...) {
+    cassert(tk->kind != TK_BEGIN);
+    cassert(tk->kind != TK_END);
     va_list args;
     va_start(args, fmt);
     char buf[1024];
