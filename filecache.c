@@ -12,11 +12,14 @@ void init_fcache() {
 
 void free_fcache() {
     cassert(g_filemap);
-    for (struct list_node_t* it = g_filemap->list->front; it; it = it->next) {
-        struct map_pair_t* pair = (struct map_pair_t*)(it->data);
-        struct FileCache* cache = (struct FileCache*)(pair->data);
-        list_delete(cache->lines);
-        list_delete(cache->rawtks);
+
+    for (size_t idx = 0; idx < g_filemap->cap; ++idx) {
+        struct map_pair_t* pair = g_filemap->bucket + idx;
+        if (pair->key) {
+            struct FileCache* cache = (struct FileCache*)(pair->data);
+            list_delete(cache->lines);
+            list_delete(cache->rawtks);
+        }
     }
 
     map_delete(g_filemap);
@@ -67,8 +70,7 @@ struct FileCache* fcache_get(const char* path) {
         lbegin = lend + 1;  // skip new line
     }
 
-    bool succuess = map_try_insert(g_filemap, path, fcache);
-    cassert(succuess);
+    map_insert(g_filemap, path, fcache);
 
     // raw tokens
     fcache->rawtks = lex_one(path, fcache->source);

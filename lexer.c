@@ -5,6 +5,8 @@ static struct map_t* g_puncts;
 static struct map_t* g_keywords;
 static char g_validpuncts[128];
 
+static const char* g_punctarr[64];
+
 static int peek() {
     return *(g_loc.p);
 }
@@ -178,11 +180,12 @@ static void add_char(struct list_t* tks) {
 }
 
 static void add_punct(struct list_t* tks) {
-    for (struct list_node_t* it = g_puncts->list->front; it; it = it->next) {
-        struct map_pair_t* pair = ((struct map_pair_t*)(it->data));
-        const char* punct = pair->key;
+    for (const char** pp = g_punctarr; *pp; ++pp) {
+        const char* punct = *pp;
         size_t len = strlen(punct);
         if (strncmp(punct, g_loc.p, len) == 0) {
+            struct map_pair_t* pair = map_find(g_puncts, punct);
+            cassert(pair);
             int kind = (int)(pair->data);
             struct Token* tk = token_new(kind, g_loc.col, g_loc.p, g_loc.p + len);
             list_push_back(tks, tk);
@@ -286,19 +289,17 @@ void init_tk_global() {
     cassert(g_keywords == NULL);
 
     g_puncts = map_new();
-#define TOKEN(name, symbol, kw, punct)                             \
-    if (punct) {                                                   \
-        bool result = map_try_insert(g_puncts, symbol, TK_##name); \
-        cassert(result);                                           \
+#define TOKEN(name, symbol, kw, punct)           \
+    if (punct) {                                 \
+        map_insert(g_puncts, symbol, TK_##name); \
     }
 #include "token.inl"
 #undef TOKEN
 
     g_keywords = map_new();
-#define TOKEN(name, symbol, kw, punct)                               \
-    if (kw) {                                                        \
-        bool result = map_try_insert(g_keywords, symbol, TK_##name); \
-        cassert(result);                                             \
+#define TOKEN(name, symbol, kw, punct)             \
+    if (kw) {                                      \
+        map_insert(g_keywords, symbol, TK_##name); \
     }
 #include "token.inl"
 #undef TOKEN
@@ -311,7 +312,17 @@ void init_tk_global() {
     }
 #include "token.inl"
 #undef TOKEN
-    cassert(idx < sizeof(g_validpuncts));
+    cassert(idx < ARRAY_LEN(g_validpuncts));
+
+    idx = 0;
+#define TOKEN(name, symbol, kw, punct) \
+    if (punct > 0) {                   \
+        g_punctarr[idx] = symbol;      \
+        ++idx;                         \
+    }
+#include "token.inl"
+#undef TOKEN
+    cassert(idx < ARRAY_LEN(g_punctarr));
 }
 
 void free_tk_global() {
