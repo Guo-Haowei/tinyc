@@ -179,7 +179,7 @@ static void add_char(struct list_t* tks) {
 
 static void add_punct(struct list_t* tks) {
     for (struct list_node_t* it = g_puncts->list->front; it; it = it->next) {
-        struct map_pair_t* pair =((struct map_pair_t*)(it->data));
+        struct map_pair_t* pair = ((struct map_pair_t*)(it->data));
         const char* punct = pair->key;
         size_t len = strlen(punct);
         if (strncmp(punct, g_loc.p, len) == 0) {
@@ -281,7 +281,7 @@ struct list_t* lex(const char* path) {
     return tks;
 }
 
-void init_global() {
+void init_tk_global() {
     cassert(g_puncts == NULL);
     cassert(g_keywords == NULL);
 
@@ -314,7 +314,7 @@ void init_global() {
     cassert(idx < sizeof(g_validpuncts));
 }
 
-void shutdown_global() {
+void free_tk_global() {
     cassert(g_puncts != NULL);
     cassert(g_keywords != NULL);
 

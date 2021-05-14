@@ -10,7 +10,7 @@ void init_fcache() {
     // add built-in files
 }
 
-void shutdown_fcache() {
+void free_fcache() {
     cassert(g_filemap);
     for (struct list_node_t* it = g_filemap->list->front; it; it = it->next) {
         struct map_pair_t* pair = (struct map_pair_t*)(it->data);

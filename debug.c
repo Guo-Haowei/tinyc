@@ -46,6 +46,18 @@ const char* tk2prettystr(int kind) {
     return s_names[kind];
 }
 
+const char* nd2str(int kind) {
+    cassert(kind >= 0 && kind < ND_COUNT);
+
+    static const char* s_names[ND_COUNT] = {
+#define NODE(name, dname, stmt, expr) dname,
+#include "node.inl"
+#undef NODE
+    };
+
+    return s_names[kind];
+}
+
 void dumptks(const struct list_t* tks) {
     for (struct list_node_t* n = tks->front; n; n = n->next) {
         struct Token* tk = (struct Token*)(n->data);
@@ -92,4 +104,44 @@ void dumpfunc(FILE* f, const struct Symbol* func) {
         }
     }
     fprintf(f, ")");
+}
+
+static void whitespace(FILE* f, int indent) {
+    fprintf(f, "%.*s", MIN(indent * 4, 40), "                                        ");
+}
+
+static void dumpnode_internal(FILE* f, struct Node* node, int indent) {
+    cassert(f);
+    cassert(node);
+
+    const int node_kind = node->kind;
+    switch (node_kind) {
+        /// TODO: nop
+        case ND_EXPR_LIT:
+            fprintf(f, "%s", node->begin->raw);
+            break;
+        case ND_STMT_RET:
+            whitespace(f, indent);
+            fprintf(f, "return ");
+            cassert(node->expr);
+            dumpnode_internal(f, node->expr, indent);
+            fprintf(f, ";\n");
+            break;
+        case ND_STMT_CMP:
+            whitespace(f, indent);
+            fprintf(f, "{\n");
+            for (struct list_node_t* it = node->stmts->front; it; it = it->next) {
+                dumpnode_internal(f, it->data, indent + 1);
+            }
+            whitespace(f, indent);
+            fprintf(f, "}\n");
+            break;
+        default:
+            panic("TODO: implement dumpnode for \"%s\"", nd2str(node_kind));
+            break;
+    }
+}
+
+void dumpnode(FILE* f, struct Node* node) {
+    dumpnode_internal(f, node, 0);
 }

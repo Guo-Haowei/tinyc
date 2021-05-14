@@ -41,6 +41,9 @@
 #define MAX_PATH_LEN 256
 #define MAX_SCOPE_NAME_LEN 64
 
+#define INT_SIZE_IN_BYTE 4
+#define PTR_SIZE_IN_BYTE 8
+
 #ifdef __cplusplus
 extern "C" {
 #endif  // #ifdef __cplusplus
@@ -178,8 +181,8 @@ struct Token {
 struct list_t* lex_one(const char* path, const char* source);
 struct list_t* lex(const char* path);
 
-void init_global();      // set up keyword, puncts
-void shutdown_global();  // clean up keywords, puncts
+void init_tk_global();
+void free_tk_global();
 
 /*
 ** preprocessor.c
@@ -203,16 +206,25 @@ enum {
 
 struct DataType {
     int kind;
-    int sizeInByte;
+    int size;
     int arrLen;
     bool mut;
     struct DataType* base;
 };
 
-struct DataType* datatype_new(int kind, bool mut);
+struct DataType* datatype_new(int kind, int size, bool mut);
 
-// user free
 const char* datatype_string(const struct DataType* dt);
+
+void init_dt_global();
+void free_dt_global();
+
+extern struct DataType* g_char;
+extern struct DataType* g_const_char;
+extern struct DataType* g_int;
+extern struct DataType* g_const_int;
+extern struct DataType* g_void;
+extern struct DataType* g_const_char_ptr;
 
 /*
 ** parser.c
@@ -235,7 +247,7 @@ enum {
 struct Node;
 
 struct Symbol {
-    int kind;             // symbol kind
+    int kind;  // symbol kind
     struct Token* symbol;
 
     // function
@@ -244,16 +256,37 @@ struct Symbol {
     struct Node* definition;
     // variable
     struct DataType* dataType;
-
-    struct Symbol* prev;  // for travel back
 };
 
-enum NodeKind {
-    ND_INVALID,
+enum {
+#define NODE(name, dname, stmt, expr) ND_##name,
+#include "node.inl"
+#undef NODE
+    ND_COUNT
 };
 
 struct Node {
-    int dummy;
+    int kind;
+
+    struct Node* parent;  // stmts
+    struct Token* begin;
+    struct Token* end;
+    struct DataType* type;
+
+    struct list_t* stmts;
+    struct Node* expr;
+
+    /// TODO: union
+    int ivalue;
+
+    // <comp-stmt>
+    // - stmts
+
+    // <ret-stmt>
+    // - expr
+
+    // <const-expr>
+    // - value
 };
 
 struct Node* parse(struct list_t* tks);
@@ -280,7 +313,7 @@ struct FileCache {
 };
 
 void init_fcache();
-void shutdown_fcache();
+void free_fcache();
 struct FileCache* fcache_get(const char* path);
 
 /*
@@ -321,9 +354,13 @@ const char* tk2prettystr(int kind);
 
 const char* dt2str(int kind);
 
+const char* nd2str(int kind);
+
 void dumptks(const struct list_t* tks);
 
 void dumpfunc(FILE* f, const struct Symbol* func);
+
+void dumpnode(FILE* f, struct Node* node);
 
 void _assert_internal(int line, const char* file, const char* assertion);
 

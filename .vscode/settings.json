@@ -8,6 +8,7 @@
         "string.h": "c",
         "stdio.h": "c",
         "unit.h": "c",
-        "token.inl": "c"
+        "token.inl": "c",
+        "node.inl": "c"
     }
 }

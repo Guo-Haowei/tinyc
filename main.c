@@ -19,7 +19,9 @@ int main(int argc, const char** argv) {
     }
 
     init_arena();
-    init_global();
+
+    init_dt_global();
+    init_tk_global();
     init_fcache();
 
     // for each file
@@ -42,7 +44,9 @@ int main(int argc, const char** argv) {
         reset_tmp_arena();
     }
 
-    shutdown_fcache();
-    shutdown_global();
+    free_fcache();
+    free_dt_global();
+    free_tk_global();
+
     shutdown_arena();
 }
