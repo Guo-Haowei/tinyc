@@ -12,6 +12,8 @@
 #define DEVPRINT(...)
 #endif
 
+#define ERROR(...) { printf("\n%s:", prog); printf(__VA_ARGS__); exit(1); }
+
 // definitions
 enum { TkErr = 0,
        TkLP = '(', TkRP = ')',
@@ -25,11 +27,11 @@ enum { TkErr = 0,
 
 enum { TVoid, TInt, TChar, TPtr };
 
-enum { Global };
+enum { Undefined, Global, Param, Local, Func };
 
 // vm
 enum { _Offset = 1, OpAdd, OpSub, OpMul, OpDiv, OpRem,
-       OpPush, OpPop, OpMov, OpSave, OpLoad, OpRet,
+       OpPush, OpPop, OpMov, OpStore, OpLoad, OpLoadc, OpRet,
        CPrintf };
 enum { RegEax = 1, RegEbx, RegEcx, RegEdx, RegEsp, RegEbp, Imme };
 
@@ -40,14 +42,10 @@ struct Token {
     char* end;
 };
 
-// data type
-struct DataType {
-    int kind;
-};
-
 struct Symbol {
+    int type;
     int tkIdx;
-    int scope; // Global or Local
+    int scope;
     int address; // offset to ebp
 };
 
@@ -70,6 +68,7 @@ struct Ins {
 #define MAX_PRINF_ARGS 8
 
 char src[MAX_SRC]; char *p; int ln;
+const char* prog;
 
 // tokens
 struct Token tks[MAX_TOKEN]; int tkNum; int tkIter;
@@ -81,6 +80,16 @@ int insNum;
 char* stack;
 char* data;
 int ds;
+
+#define MAX_SCOPE 128
+int scopeId;
+int scope[MAX_SCOPE];
+int scopeCnt;
+
+struct Symbol syms[MAX_SYMBOL];
+int symCnt;
+
+void expr();
 
 // utility
 void panic(char* fmt) {
@@ -98,9 +107,10 @@ int str2int(char* p, char* end) {
 
 // debug only
 #include "debug.inl"
-// debug only
 
 void lex() {
+    p = src;
+    ln = 1;
     char* pp;
     while (*p) {
         if (tkNum >= MAX_TOKEN) {
@@ -144,54 +154,70 @@ void lex() {
             tks[tkNum].kind = *pp; tks[tkNum].ln = ln; tks[tkNum].start = p;
             tks[tkNum++].end = ++p;
         } else {
-            printf("error: strayed char %c on line %d\n", *p, ln);
-            exit(1);
+            ERROR("%d: strayed char '%c'\n", ln, *p);
         }
     }
 }
 
-#define MAX_SCOPE 128
-int scopeId;
-int scopeIter;
-int scope[MAX_SCOPE];
-struct Symbol syms[MAX_SYMBOL];
-int symCnt;
-
 void enter_scope() {
-    if (scopeIter >= MAX_SCOPE) {
+    if (scopeCnt >= MAX_SCOPE) {
         panic("scope overflow");
     }
 
-    ++scopeId;
-    scope[scopeIter++] = scopeId;
+    scope[scopeCnt++] = ++scopeId;
+}
+
+// debug
+void debugprintsymbols() {
+    for (int i = 0; i < symCnt; ++i) {
+        int idx = syms[i].tkIdx;
+        char* start = tks[idx].start;
+        char* end = tks[idx].end;
+        int len = end - start;
+
+        DEVPRINT("%.*s: %d, scope %d\n", len, start, syms[i].address, syms[i].scope);
+    }
 }
 
 void exit_scope() {
-    if (scopeIter <= 0) {
+    if (scopeCnt <= 0) {
         panic("scope overflow");
     }
 
-    --scopeIter;
-    // TODO: clean up symbols in this scope
+    // debugprintsymbols();
+    for (int i = symCnt - 1; syms[i].scope == scope[scopeCnt - 1]; --i) {
+        int idx = syms[i].tkIdx;
+        char* start = tks[i].start;
+        char* end = tks[i].end;
+        int len = end - start;
+        DEVPRINT("popping %.*s\n", len, start);
+        --symCnt;
+    }
+
+    --scopeCnt;
 }
 
 int expect(int kind) {
     if (tks[tkIter].kind != kind) {
-        printf("expect %s on line %d, got %.*s\n", tk2str(kind), tks[tkIter].ln, tks[tkIter].end - tks[tkIter].start, tks[tkIter].start);
-        exit(1);
+        ERROR("%d: expected %s, got '%.*s'\n",
+            tks[tkIter].ln,
+            tk2str(kind),
+            tks[tkIter].end - tks[tkIter].start,
+            tks[tkIter].start);
     }
     return tkIter++;
 }
 
-void expect_type(int* kind, int* offset) {
+int expect_type() {
     int type = tks[tkIter].kind;
     if (type == KwInt) {
-        *kind = TInt;
-        *offset = 4;
         ++tkIter;
+        return TInt;
     } else {
-        printf("expect type specifier on line %d, got %.*s\n", tks[tkIter].ln, tks[tkIter].end - tks[tkIter].start, tks[tkIter].start);
-        exit(1);
+        ERROR("%d: expected type specifier, got '%.*s'\n",
+            tks[tkIter].ln,
+            tks[tkIter].end - tks[tkIter].start,
+            tks[tkIter].start);
     }
 }
 
@@ -205,25 +231,28 @@ void add_ins(int op, int imme) {
     ++insNum;
 }
 
+#define OP2(op, dest) ((op) | (dest << 8))
+#define OP3(op, dest, src1) ((op) | (dest << 8) | (src1 << 16))
 #define OP(op, dest, src1, src2) ((op) | (dest << 8) | (src1 << 16) | (src2 << 24))
 
-void expr_atomic() {
-    int kind = tks[tkIter].kind;
+void expr_post() {
+    char* start = tks[tkIter].start;
+    char* end = tks[tkIter].end;
+    int ln = tks[tkIter].ln;
+    int kind = tks[tkIter++].kind;
+    int len = end - start;
     if (kind == TkInt) {
-        int val = str2int(tks[tkIter].start, tks[tkIter].end);
+        int val = str2int(start, end);
         add_ins(OP(OpMov, RegEax, 0, Imme), val);
-        ++tkIter;
     } else if (kind == TkStr) {
         if (ds > DATA_SECTION_SIZE / 2)
             panic("data is running low");
 
-        char* p = tks[tkIter].start;
-        int len = tks[tkIter].end - tks[tkIter].start;
         add_ins(OP(OpMov, RegEax, 0, Imme), (int)(data + ds));
         for (int i = 1; i < len - 1; ++i) {
-            int c = p[i];
+            int c = start[i];
             if (c == '\\') {
-                c = p[++i];
+                c = start[++i];
                 if (c == 'n') c = '\n';
                 else panic("handle escape sequence");
             }
@@ -231,38 +260,48 @@ void expr_atomic() {
         }
         data[ds++] = 0;
         ds = (ds + 3) & -3; // align data
-        ++tkIter;
     } else if (kind == TkLP) {
-        ++tkIter;
         expr();
         expect(TkRP);
-    } else {
-        printf("expect expression, got %.*s\n", tks[tkIter].end - tks[tkIter].start, tks[tkIter].start);
-        exit(1);
-    }
-}
+    } else if (kind == TkId) {
+        int address = 0;
+        int type = 0;
+        for (int i = symCnt - 1; i >= 0; --i) {
+            int tmp = syms[i].tkIdx;
+            if (strncmp(tks[tmp].start, start, len) == 0) {
+                address = syms[i].address;
+                type = syms[i].type;
+                break;
+            }
+        }
 
-void expr_post() {
-    int id = tkIter;
-    int kind = tks[tkIter].kind;
-    if (kind == TkId) {
-        panic("TODO: implement func call");
+        if (type == Undefined) {
+            ERROR("%d: '%.*s' undeclared\n", ln, len, start);
+        }
+
+        if (type == Func) {
+            panic("TODO: implement func call");
+        } else if (type == Global) {
+            panic("TODO: implement globlal variable");
+        } else {
+            add_ins(OP(OpSub, RegEdx, RegEbp, Imme), address);
+            add_ins(OP(OpLoad, RegEax, RegEdx, 0), 0);
+        }
     } else if (kind == KwPrintf) {
-        ++tkIter;
         expect(TkLP);
         int argc = 0;
         for (; tks[tkIter].kind != TkRP; ++argc) {
             if (argc > 0) expect(TkComma);
             expr();
-            add_ins(OP(OpPush, RegEax, 0, 0), 0);
+            add_ins(OP2(OpPush, RegEax), 0);
         }
         if (argc > MAX_PRINF_ARGS) panic("printf supports at most %d args");
         add_ins(OP(OpSub, RegEsp, RegEsp, Imme), (MAX_PRINF_ARGS - argc) << 2);
-        add_ins(OP(CPrintf, 0, 0, 0), argc);
+        add_ins(CPrintf, argc);
         add_ins(OP(OpAdd, RegEsp, RegEsp, Imme), MAX_PRINF_ARGS << 2);
         expect(TkRP);
     } else {
-        expr_atomic();
+        ERROR("%d: expected expression, got '%.*s'\n", ln, len, start);
     }
 }
 
@@ -275,9 +314,9 @@ void expr_mul() {
         else if (optk == TkRem) opcode = OpRem;
         else break;
         ++tkIter;
-        add_ins(OP(OpPush, RegEax, 0, 0), 0);
+        add_ins(OP2(OpPush, RegEax), 0);
         expr_post();
-        add_ins(OP(OpPop, RegEbx, 0, 0), 0);
+        add_ins(OP2(OpPop, RegEbx), 0);
         add_ins(OP(opcode, RegEax, RegEbx, RegEax), 0);
     }
 }
@@ -290,9 +329,9 @@ void expr_add() {
         else if (optk == TkSub) opcode = OpSub;
         else break;
         ++tkIter;
-        add_ins(OP(OpPush, RegEax, 0, 0), 0);
+        add_ins(OP2(OpPush, RegEax), 0);
         expr_mul();
-        add_ins(OP(OpPop, RegEbx, 0, 0), 0);
+        add_ins(OP2(OpPop, RegEbx), 0);
         add_ins(OP(opcode, RegEax, RegEbx, RegEax), 0);
     }
 }
@@ -310,14 +349,46 @@ void stmt() {
     } else if (kind == TkLB) {
         enter_scope();
         ++tkIter;
+        int restore = 0;
         while (tks[tkIter].kind != TkRB) {
             kind = tks[tkIter].kind;
-            if (kind == KwInt) {
-                int offset;
-                expect_type(&kind, &offset);
-                add_ins(OpSub | (RegEsp << 8) | (RegEsp << 16) | (Imme << 24), offset);
-                // TODO: add to symbol table
-                expect(TkId);
+            if (kind == KwInt /*TODO: Char, Ptr*/) {
+                expect_type();
+                add_ins(OP(OpSub, RegEsp, RegEsp, Imme), 4);
+                char* start = tks[tkIter].start;
+                int len = tks[tkIter].end - start;
+                for (int i = symCnt - 1; syms[i].scope == scope[scopeCnt - 1]; --i) {
+                    int tmpId = syms[i].tkIdx;
+                    if (strncmp(tks[tmpId].start, start, len) == 0) {
+                        ERROR(
+                            "%d: redeclaration of '%.*s', previously defined on line %d\n",
+                            tks[tkIter].ln, len, start, tks[tmpId].ln);
+                    }
+                }
+
+                if (symCnt >= MAX_SYMBOL) {
+                    panic("symbol overflow");
+                }
+
+                int prev = symCnt - 1;
+                syms[symCnt].address = 4;
+                if (prev >= 0 && syms[prev].type == Local) {
+                    syms[symCnt].address += syms[prev].address;
+                }
+
+                syms[symCnt].type = Local;
+                syms[symCnt].tkIdx = tkIter;
+                syms[symCnt].scope = scope[scopeCnt - 1];
+                ++symCnt;
+                ++tkIter;
+
+                if (tks[tkIter].kind == TkEq) {
+                    ++tkIter;
+                    expr();
+                    add_ins(OP(OpStore, RegEsp, RegEax, 0), 0);
+                }
+
+                ++restore;
                 expect(TkSC);
             } else {
                 stmt();
@@ -325,6 +396,7 @@ void stmt() {
         }
         ++tkIter;
 
+        add_ins(OP(OpAdd, RegEsp, RegEsp, Imme), restore << 2);
         exit_scope();
     } else {
         expr();
@@ -332,11 +404,9 @@ void stmt() {
     }
 }
 
-// HACK only parse return stmt for now
 void obj() {
     // type
-    int kind; int offset;
-    expect_type(&kind, &offset);
+    expect_type();
 
     // int id = expect(TkId);
     expect(TkId);
@@ -344,16 +414,30 @@ void obj() {
     expect(TkLP);
     expect(TkRP);
 
+    // save frame
+    add_ins(OP2(OpPush, RegEbp), 0);
+    add_ins(OP(OpMov, RegEbp, 0, RegEsp), 0);
     stmt();
+    // clear frame
 }
 
 void gen() {
     enter_scope();
 
-    // TODO: enum, struct
     obj();
 
     exit_scope();
+}
+
+void printvm() {
+    DEVPRINT("********** VM begin **********\n");
+    DEVPRINT("eax: %d\n", regs[RegEax]);
+    DEVPRINT("ebx: %d\n", regs[RegEbx]);
+    DEVPRINT("ecx: %d\n", regs[RegEcx]);
+    DEVPRINT("edx: 0x%X\n", regs[RegEdx]);
+    DEVPRINT("esp: 0x%X\n", regs[RegEsp]);
+    DEVPRINT("ebp: 0x%X\n", regs[RegEbp]);
+    DEVPRINT("********** VM end **********\n");
 }
 
 void exec() {
@@ -384,6 +468,10 @@ void exec() {
             regs[dest] = regs[src1] / value;
         } else if (op == OpRem) {
             regs[dest] = regs[src1] % value;
+        } else if (op == OpStore) {
+            ((int*)stack)[regs[dest] >> 2] = regs[src1];
+        } else if (op == OpLoad) {
+            regs[dest] = ((int*)stack)[regs[src1] >> 2];
         } else if (op == OpRet) {
             // TODO: implement
             break;
@@ -405,8 +493,14 @@ void exec() {
 }
 
 int main(int argc, char **argv) {
+    prog = argv[0];
+    p = strrchr(prog, '\\');
+    prog = p ? p + 1 : prog;
+    p = strrchr(prog, '/');
+    prog = p ? p + 1 : prog;
+
     if (argc != 2) {
-        printf("Usage: %s [options] file\n", argv[0]);
+        printf("Usage: %s [options] file\n", prog);
         printf("Options:\n");
         exit(1);
     }
@@ -418,27 +512,20 @@ int main(int argc, char **argv) {
 
     // store source to buffer
     void* fp = fopen(argv[1], "r");
-    for (p = src; (p[0] = getc(fp)) != EOF; ++p) {
+    for (p = src; (p[0] = getc(fp)) != -1; ++p) {
         if ((p - src) >= MAX_SRC) {
             panic("src buffer overflow");
         }
     }
     p[0] = '\0';
     fclose(fp);
-    p = src;
 
-    // set global values
-    ln = 1;
-
-    DEVPRINT("-------- lex --------\n");
     lex();
-    // debug
-    dump_tks();
+    // DEVPRINT("-------- lex --------\n");
+    // dump_tks();
 
-    DEVPRINT("-------- code --------\n");
     gen();
-
-    // debug
+    DEVPRINT("-------- code --------\n");
     dump_code();
 
     DEVPRINT("-------- exec --------\n");

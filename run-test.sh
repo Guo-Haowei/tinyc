@@ -10,7 +10,7 @@ fi
 
 cd tmp || exit 1
 
-gcc -Wno-sign-compare -Wno-implicit-function-declaration -D_TEST ../cc.c -o cc > out || exit 1
+gcc -Wno-sign-compare -Wno-implicit-function-declaration -D_TEST ../cc.c -o cc || exit 1
 clear
 
 testcase() {

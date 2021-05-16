@@ -47,9 +47,11 @@ char* reg2str(int reg) {
     switch (reg) {
         case RegEax: return "eax";
         case RegEbx: return "ebx";
-        case RegEbp: return "ebp";
+        case RegEcx: return "ecx";
+        case RegEdx: return "edx";
         case RegEsp: return "esp";
-        default: panic("unknown reg"); return "<error>";
+        case RegEbp: return "ebp";
+        default: printf("%d\n", reg);panic("unknown reg"); return "<error>";
     }
 }
 
@@ -94,8 +96,14 @@ void dump_code() {
         case OpPop:
             DEVPRINT("  %s %s\n", op2str(op), reg2str(dest));
             break;
+        case OpLoad:
+            DEVPRINT("  load %s [%s]\n", reg2str(dest), reg2str(src1));
+            break;
+        case OpStore:
+            DEVPRINT("  store [%s] %s\n", reg2str(dest), reg2str(src1));
+            break;
         case CPrintf:
-            DEVPRINT("  DEVPRINT\n");
+            DEVPRINT("  print\n");
             break;
         default:
             panic("Invalid op code");
