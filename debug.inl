@@ -13,7 +13,9 @@ char* tk2str(int kd) {
         case TkRB: return "'}'";
         case TkLS: return "'['";
         case TkRS: return "']'";
+        case TkComma: return "','";
         case TkSC: return "';'";
+        case TkEq: return "'='";
         case TkAdd: return "add";
         case TkSub: return "sub";
         case TkMul: return "mul";
@@ -21,6 +23,7 @@ char* tk2str(int kd) {
         case TkRem: return "rem";
         case KwInt: return "Int";
         case KwRet: return "Ret";
+        case KwPrintf: return "Print";
         default: panic("unknown token"); return "<error>";
     }
 }
@@ -50,10 +53,13 @@ char* reg2str(int reg) {
     }
 }
 
+void dump_tk(int i) {
+    DEVPRINT("[ %-5s] ln:%d: [%.*s]\n", tk2str(tks[i].kind), tks[i].ln, tks[i].end - tks[i].start, tks[i].start);
+}
+
 void dump_tks() {
     for (int i = 0; i < tkNum; ++i) {
-        struct Token* tk = &tks[i];
-        printf("[ %-4s] ln:%d: [%.*s]\n", tk2str(tk->kind), tk->ln, tk->end - tk->start, tk->start);
+        dump_tk(i);
     }
 }
 
@@ -65,30 +71,37 @@ void dump_code() {
         int src1 = (op & 0xFF0000) >> 16;
         int src2 = (op & 0xFF000000) >> 24;
         op = op & 0xFF;
+        DEVPRINT("[ 0x%04X ]", (pc + 1) << 2);
         switch (op) {
         case OpMov:
-            printf("    mov %s, ", reg2str(dest));
-            if (src1 == Imme) printf("%d\n", imme);
-            else printf("%s\n", reg2str(src1));
+            DEVPRINT("  mov %s, ", reg2str(dest));
+            if (src2 == Imme) DEVPRINT("%d\n", imme);
+            else DEVPRINT("%s\n", reg2str(src2));
             break;
         case OpRet: 
-            printf("    ret\n");
+            DEVPRINT("  ret\n");
             break;
         case OpAdd: 
         case OpSub: 
         case OpMul: 
         case OpDiv: 
         case OpRem: 
-            printf("    %s %s, %s, %s\n", op2str(op), reg2str(dest), reg2str(src1), reg2str(src2));
+            DEVPRINT("  %s %s, %s, ", op2str(op), reg2str(dest), reg2str(src1));
+            if (src2 == Imme) DEVPRINT("%d\n", imme);
+            else DEVPRINT("%s\n", reg2str(src2));
             break;
         case OpPush:
         case OpPop:
-            printf("    %s %s\n", op2str(op), reg2str(dest));
+            DEVPRINT("  %s %s\n", op2str(op), reg2str(dest));
+            break;
+        case CPrintf:
+            DEVPRINT("  DEVPRINT\n");
             break;
         default:
             panic("Invalid op code");
             break;
         }
     }
+    DEVPRINT("%d lines of code\n", insNum);
 }
 // debug only
