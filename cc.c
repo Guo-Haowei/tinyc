@@ -6,7 +6,11 @@
 
 // no char array[] on stack
 
+#if !defined(_TEST)
 #define DEVPRINT(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define DEVPRINT(...)
+#endif
 
 // definitions
 enum { TkErr = 0,
