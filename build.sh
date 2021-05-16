@@ -1,1 +1,1 @@
-gcc -Wall -Wextra -Wno-sign-compare cc.c -o cc
+gcc -Wall -Wextra -Wno-sign-compare -Wno-implicit-function-declaration cc.c -o cc
