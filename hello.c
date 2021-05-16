@@ -2,5 +2,5 @@
 
 int main() {
     // printf("Hello, world\n");
-    return 12345;
+    return (4 + 3) * 2;
 }
