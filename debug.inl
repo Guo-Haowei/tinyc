@@ -1,33 +1,5 @@
 // debug only
 
-char* tk2str(int kd) {
-    switch (kd) {
-        case TkErr: return "ERR";
-        case TkInt: return "INT";
-        case TkId: return "ID";
-        case TkStr: return "STR";
-        case TkChar: return "CHAR";
-        case TkLP: return "'('";
-        case TkRP: return "')'";
-        case TkLB: return "'{'";
-        case TkRB: return "'}'";
-        case TkLS: return "'['";
-        case TkRS: return "']'";
-        case TkComma: return "','";
-        case TkSC: return "';'";
-        case TkEq: return "'='";
-        case TkAdd: return "add";
-        case TkSub: return "sub";
-        case TkMul: return "mul";
-        case TkDiv: return "div";
-        case TkRem: return "rem";
-        case KwInt: return "Int";
-        case KwRet: return "Ret";
-        case KwPrintf: return "Print";
-        default: panic("unknown token"); return "<error>";
-    }
-}
-
 char* op2str(int op) {
     switch (op) {
         case OpRet: return "ret";
@@ -39,6 +11,12 @@ char* op2str(int op) {
         case OpRem: return "rem";
         case OpPush: return "push";
         case OpPop: return "pop";
+        case OpEq: return "EQ";
+        case OpNe: return "NE";
+        case OpLt: return "LT";
+        case OpLe: return "LE";
+        case OpGt: return "GT";
+        case OpGe: return "GE";
         default: panic("unknown token"); return "<error>";
     }
 }
@@ -56,7 +34,7 @@ char* reg2str(int reg) {
 }
 
 void dump_tk(int i) {
-    DEVPRINT("[ %-5s] ln:%d: [%.*s]\n", tk2str(tks[i].kind), tks[i].ln, tks[i].end - tks[i].start, tks[i].start);
+    DEVPRINT("[ %-7s] ln:%d: [%.*s]\n", tk2str(tks[i].kind), tks[i].ln, tks[i].end - tks[i].start, tks[i].start);
 }
 
 void dump_tks() {
@@ -91,6 +69,14 @@ void dump_code() {
             DEVPRINT("  %s %s, %s, ", op2str(op), reg2str(dest), reg2str(src1));
             if (src2 == Imme) DEVPRINT("%d\n", imme);
             else DEVPRINT("%s\n", reg2str(src2));
+            break;
+        case OpEq:
+        case OpNe:
+        case OpGt:
+        case OpGe:
+        case OpLt:
+        case OpLe:
+            DEVPRINT("  %s %s, %s, %s\n", op2str(op), reg2str(dest), reg2str(src1), reg2str(src2));
             break;
         case OpPush:
         case OpPop:

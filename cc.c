@@ -1,20 +1,39 @@
+#ifndef NOT_DEVELOPMENT
 #include <assert.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#endif // #ifndef NOT_DEVELOPMENT
 
-// TODO: replace
 //#define for @
-#define do @
-//- no for
-//- continue
-//- ?:
+//#define do @
+//#define ? @
+//#define : @
+//#define continue @
+//#define break @
 
-#if !defined(_TEST)
-#define DEVPRINT(...) fprintf(stderr, __VA_ARGS__)
-#else
+//- instruction sets
+//- add:    dst = x + y
+//- sub:    dst = x - y
+//- mul:    dst = x * y
+//- div:    dst = x / y
+//- rem:    dst = x % y
+//- push:   esp -= 4; [esp] = x
+//- pop:    x = [esp]; esp += 4
+//- mov:    mov x, y or mov x, 2
+//- store:  store [x] y
+//- load:   load x [y]
+//- loadc:  load x 0xFF & [y]
+//- ret:    ret
+//- jZ:     if eax == 0; jump imme
+//- jump:   jump imme
+//- printf: call c printf, push 8 args onto stack
+
+#if defined(TEST) || defined(NOT_DEVELOPMENT)
 #define DEVPRINT(...)
+#else
+#define DEVPRINT(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
 #define ERROR(...) { printf("\n%s:", prog); printf(__VA_ARGS__); exit(1); }
@@ -26,33 +45,27 @@ enum { TkErr = 0,
        TkLS = '[', TkRS = ']',
        TkSC = ';', TkComma = ',',
        TkAdd = '+', TkSub = '-', TkMul = '*', TkDiv = '/', TkRem = '%',
-       TkEq = '=',
-       TkInt = 128, TkId, TkStr, TkChar,
+       TkNot = '!',
+       TkAssign = '=',
+       TkGt = '>',
+       TkLt = '<',
+       _OneCharTkOffset = 128,
+       TkNe, /* != */
+       TkEq, /* == */
+       TkGe, /* >= */
+       TkLe, /* <= */
+       TkInt, TkId, TkStr, TkChar,
        _KwOffset,
        KwInt, KwIf, KwElse, KwRet, KwPrintf };
-
 enum { TVoid, TInt, TChar, TPtr };
-
 enum { Undefined, Global, Param, Local, Func };
-
-// vm
 enum { _Offset = 1,
-       OpAdd,   // dst = x + y
-       OpSub,   // dst = x - y
-       OpMul,   // dst = x * y
-       OpDiv,   // dst = x / y
-       OpRem,   // dst = x % y
-       OpPush,  // esp -= 4; [esp] = x
-       OpPop,   // x = [esp]; esp += 4
-       OpMov,   // mov x, y or mov x, 2
-       OpStore, // store [x] y
-       OpLoad,  // load x [y]
-       OpLoadc, // load x 0xFF & [y]
-       OpRet,   // ret
-       OpJZ,  // if eax == 0 jump
-       OpJump,
-       CPrintf  // printf
-       };
+       OpAdd, OpSub, OpMul, OpDiv, OpRem,
+       OpMov, OpPush, OpPop, OpStore, OpLoad, OpLoadc,
+       OpNe, OpEq, OpGt, OpGe, OpLt, OpLe,
+       OpRet,
+       OpJZ, OpJump,
+       CPrintf };
 enum { RegEax = 1, RegEbx, RegEcx, RegEdx, RegEsp, RegEbp, Imme };
 
 struct Token {
@@ -125,8 +138,52 @@ int str2int(char* p, char* end) {
     return result;
 }
 
-// debug only
+// TODO: remove this
+char* tk2str(int kd) {
+    switch (kd) {
+        case TkErr: return "ERR";
+        case TkInt: return "INT";
+        case TkId: return "ID";
+        case TkStr: return "STR";
+        case TkChar: return "CHAR";
+        case TkLP: return "'('";
+        case TkRP: return "')'";
+        case TkLB: return "'{'";
+        case TkRB: return "'}'";
+        case TkLS: return "'['";
+        case TkRS: return "']'";
+        case TkComma: return "','";
+        case TkSC: return "';'";
+        case TkAssign: return "assign";
+        case TkAdd: return "add";
+        case TkSub: return "sub";
+        case TkMul: return "mul";
+        case TkDiv: return "div";
+        case TkRem: return "rem";
+        case TkEq: return "EQ";
+        case TkNe: return "NE";
+        case TkGe: return "GE";
+        case TkGt: return "GT";
+        case TkLe: return "LE";
+        case TkLt: return "LT";
+        case KwInt: return "Int";
+        case KwRet: return "Ret";
+        case KwIf: return "If";
+        case KwElse: return "Else";
+        case KwPrintf: return "Print";
+        default: printf("[%d]", kd); panic("unknown token"); return "<error>";
+    }
+}
+
+#ifndef NOT_DEVELOPMENT
 #include "debug.inl"
+#else
+#define op2str(...)
+#define reg2str(...)
+#define dump_tk(...)
+#define dump_tks(...)
+#define dump_code(...)
+#endif // #ifndef NOT_DEVELOPMENT
 
 void lex() {
     p = src;
@@ -169,8 +226,24 @@ void lex() {
             tks[tkNum].kind = TkStr; tks[tkNum].ln = ln; tks[tkNum].start = p;
             for (++p; *p != '"'; ++p);
             tks[tkNum++].end = ++p;
+        // ==
+        } else if (*p == '=' && *(p + 1) == '=') {
+            tks[tkNum].kind = TkEq; tks[tkNum].ln = ln;
+            tks[tkNum].start = p; tks[tkNum++].end = (p += 2);
+        // !=
+        } else if (*p == '!' && *(p + 1) == '=') {
+            tks[tkNum].kind = TkNe; tks[tkNum].ln = ln;
+            tks[tkNum].start = p; tks[tkNum++].end = (p += 2);
+        // >=
+        } else if (*p == '>' && *(p + 1) == '=') {
+            tks[tkNum].kind = TkGe; tks[tkNum].ln = ln;
+            tks[tkNum].start = p; tks[tkNum++].end = (p += 2);
+        // <=
+        } else if (*p == '<' && *(p + 1) == '=') {
+            tks[tkNum].kind = TkLe; tks[tkNum].ln = ln;
+            tks[tkNum].start = p; tks[tkNum++].end = (p += 2);
         // punct
-        } else if ((pp = strchr("()[]{},;+-*/%=", *p))) {
+        } else if ((pp = strchr("()[]{},;+-*/%=><", *p))) {
             tks[tkNum].kind = *pp; tks[tkNum].ln = ln; tks[tkNum].start = p;
             tks[tkNum++].end = ++p;
         } else {
@@ -356,8 +429,28 @@ void expr_add() {
     }
 }
 
-void expr() {
+void expr_equal() {
     expr_add();
+    for (;;) {
+        int optk = tks[tkIter].kind; int opcode;
+        if (optk == TkNe) opcode = OpNe;
+        else if (optk == TkEq) opcode = OpEq;
+        else if (optk == TkLt) opcode = OpLt;
+        else if (optk == TkGt) opcode = OpGt;
+        else if (optk == TkGe) opcode = OpGe;
+        else if (optk == TkLt) opcode = OpLt;
+        else if (optk == TkLe) opcode = OpLe;
+        else break;
+        ++tkIter;
+        add_ins(OP2(OpPush, RegEax), 0);
+        expr_add();
+        add_ins(OP2(OpPop, RegEbx), 0);
+        add_ins(OP(opcode, RegEax, RegEbx, RegEax), 0);
+    }
+}
+
+void expr() {
+    expr_equal();
 }
 
 void stmt() {
@@ -423,7 +516,7 @@ void stmt() {
                 ++symCnt;
                 ++tkIter;
 
-                if (tks[tkIter].kind == TkEq) {
+                if (tks[tkIter].kind == TkAssign) {
                     ++tkIter;
                     expr();
                     add_ins(OP(OpStore, RegEsp, RegEax, 0), 0);
@@ -511,6 +604,18 @@ void exec() {
             regs[dest] = regs[src1] / value;
         } else if (op == OpRem) {
             regs[dest] = regs[src1] % value;
+        } else if (op == OpEq) {
+            regs[dest] = regs[src1] == value;
+        } else if (op == OpNe) {
+            regs[dest] = regs[src1] != value;
+        } else if (op == OpGe) {
+            regs[dest] = regs[src1] >= value;
+        } else if (op == OpGt) {
+            regs[dest] = regs[src1] > value;
+        } else if (op == OpLe) {
+            regs[dest] = regs[src1] <= value;
+        } else if (op == OpLt) {
+            regs[dest] = regs[src1] < value;
         } else if (op == OpStore) {
             ((int*)stack)[regs[dest] >> 2] = regs[src1];
         } else if (op == OpLoad) {
@@ -535,6 +640,7 @@ void exec() {
                    ((int*)stack)[slot + 1],
                    ((int*)stack)[slot + 0]);
         } else {
+            printf("[%s] ", op2str(op));
             panic("Invalid op code");
         }
         pc = pc + 1;
@@ -574,8 +680,8 @@ int main(int argc, char **argv) {
     fclose(fp);
 
     lex();
-    // DEVPRINT("-------- lex --------\n");
-    // dump_tks();
+    DEVPRINT("-------- lex --------\n");
+    dump_tks();
 
     gen();
     DEVPRINT("-------- code --------\n");

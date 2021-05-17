@@ -22,3 +22,5 @@ CMakeCache.txt
 
 # vscode
 .vscode/
+
+cc-min.c

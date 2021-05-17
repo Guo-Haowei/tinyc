@@ -3,28 +3,13 @@
 int main() {
     int i = 6;
 
-    if (i) {
-        printf("%d != 0\n", i);
-    }
-
-    if (0) printf("false\n");
+    if (i != 0) { printf("%d != 0\n", i); }
+    if (i < 0) printf("false\n");
     else printf("true\n");
+    { int div = 6; if (i % div == 0) printf("%d divisible by %d\n", i, div); }
+    { int div = 3; if (i % div == 0) printf("%d divisible by %d\n", i, div); }
+    { int div = 2; if (i % div == 0) printf("%d divisible by %d\n", i, div); }
+    { int div = 5; if (i % div == 0) printf("%d divisible by %d\n", i, div); }
 
-    if (1) {
-        printf("true\n");
-    } else {
-        printf("false\n");
-    }
-
-    if (i - 6) {
-    } else if (i - i) {
-    } else {
-        printf("%d\n", i);
-    }
-
-    if (0) {
-    }
-    if (1) {
-    }
     return 0;
 }
