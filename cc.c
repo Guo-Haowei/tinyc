@@ -4,7 +4,12 @@
 #include <stdio.h>
 #include <string.h>
 
-// no char array[] on stack
+// TODO: replace
+//#define for @
+#define do @
+//- no for
+//- continue
+//- ?:
 
 #if !defined(_TEST)
 #define DEVPRINT(...) fprintf(stderr, __VA_ARGS__)
@@ -23,16 +28,31 @@ enum { TkErr = 0,
        TkAdd = '+', TkSub = '-', TkMul = '*', TkDiv = '/', TkRem = '%',
        TkEq = '=',
        TkInt = 128, TkId, TkStr, TkChar,
-       _KwOffset, KwInt, KwRet, KwPrintf };
+       _KwOffset,
+       KwInt, KwIf, KwElse, KwRet, KwPrintf };
 
 enum { TVoid, TInt, TChar, TPtr };
 
 enum { Undefined, Global, Param, Local, Func };
 
 // vm
-enum { _Offset = 1, OpAdd, OpSub, OpMul, OpDiv, OpRem,
-       OpPush, OpPop, OpMov, OpStore, OpLoad, OpLoadc, OpRet,
-       CPrintf };
+enum { _Offset = 1,
+       OpAdd,   // dst = x + y
+       OpSub,   // dst = x - y
+       OpMul,   // dst = x * y
+       OpDiv,   // dst = x / y
+       OpRem,   // dst = x % y
+       OpPush,  // esp -= 4; [esp] = x
+       OpPop,   // x = [esp]; esp += 4
+       OpMov,   // mov x, y or mov x, 2
+       OpStore, // store [x] y
+       OpLoad,  // load x [y]
+       OpLoadc, // load x 0xFF & [y]
+       OpRet,   // ret
+       OpJZ,  // if eax == 0 jump
+       OpJump,
+       CPrintf  // printf
+       };
 enum { RegEax = 1, RegEbx, RegEcx, RegEdx, RegEsp, RegEbp, Imme };
 
 struct Token {
@@ -58,7 +78,6 @@ struct Ins {
 
 // globals
 // source code
-#define MAX_SRC (1 << 12)
 #define MAX_TOKEN (1 << 10)
 #define MAX_SYMBOL (1 << 8)
 #define MAX_INS (1 << 12)
@@ -67,7 +86,8 @@ struct Ins {
 #define INT_SIZE 4
 #define MAX_PRINF_ARGS 8
 
-char src[MAX_SRC]; char *p; int ln;
+// source file
+char* src; char* p; int srclen; int ln;
 const char* prog;
 
 // tokens
@@ -131,7 +151,7 @@ void lex() {
             tks[tkNum].kind = TkId; tks[tkNum].ln = ln; tks[tkNum].start = p;
             for (++p; (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '_'; ++p);
             // check if keyword
-            char* kw = "int return printf "; pp = kw;
+            char* kw = "int if else return printf "; pp = kw;
             for (int offset = 1; (pp = strchr(kw, ' ')); kw = pp + 1, ++offset) {
                 if (strncmp(kw, tks[tkNum].start, pp - kw) == 0) {
                     tks[tkNum].kind = _KwOffset + offset;
@@ -259,7 +279,7 @@ void expr_post() {
             data[ds++] = c;
         }
         data[ds++] = 0;
-        ds = (ds + 3) & -3; // align data
+        ds = (ds + 3) & (0xFFFFFFFF << 2); // align data
     } else if (kind == TkLP) {
         expr();
         expect(TkRP);
@@ -346,6 +366,27 @@ void stmt() {
         if (tks[++tkIter].kind != TkSC) expr();
         add_ins(OpRet, 0);
         expect(TkSC);
+    } else if (kind == KwIf) {
+        // if eax == 0, jmp L1
+        // ...
+        // jump L2:
+        // L1: ...
+        // L2: ...
+        ++tkIter;
+        expect(TkLP);
+        expr();
+        expect(TkRP);
+        int jump1Loc = insNum;
+        add_ins(OpJZ, 0);
+        stmt();
+        int jump2Loc = insNum;
+        add_ins(OpJump, insNum + 1);
+        ins[jump1Loc].imme = insNum;
+        if (tks[tkIter].kind == KwElse) {
+            ++tkIter; // skip else
+            stmt();
+            ins[jump2Loc].imme = insNum;
+        }
     } else if (kind == TkLB) {
         enter_scope();
         ++tkIter;
@@ -396,8 +437,10 @@ void stmt() {
         }
         ++tkIter;
 
-        add_ins(OP(OpAdd, RegEsp, RegEsp, Imme), restore << 2);
+        if (restore) add_ins(OP(OpAdd, RegEsp, RegEsp, Imme), restore << 2);
         exit_scope();
+    } else if (kind == TkSC) {
+        ++tkIter;
     } else {
         expr();
         expect(TkSC);
@@ -472,6 +515,12 @@ void exec() {
             ((int*)stack)[regs[dest] >> 2] = regs[src1];
         } else if (op == OpLoad) {
             regs[dest] = ((int*)stack)[regs[src1] >> 2];
+        } else if (op == OpJump) {
+            pc = imme - 1; // because of the ++pc at the end
+        } else if (op == OpJZ) {
+            if (!regs[RegEax]) {
+                pc = imme - 1; // because of the ++pc at the end
+            }
         } else if (op == OpRet) {
             // TODO: implement
             break;
@@ -488,7 +537,7 @@ void exec() {
         } else {
             panic("Invalid op code");
         }
-        ++pc;
+        pc = pc + 1;
     }
 }
 
@@ -512,12 +561,16 @@ int main(int argc, char **argv) {
 
     // store source to buffer
     void* fp = fopen(argv[1], "r");
-    for (p = src; (p[0] = getc(fp)) != -1; ++p) {
-        if ((p - src) >= MAX_SRC) {
-            panic("src buffer overflow");
-        }
+    if (!fp) {
+        printf("file '%s' does not exist\n", argv[1]);
+        return 1;
     }
-    p[0] = '\0';
+
+    fseek(fp, 0, 2); // SEEK_END
+    srclen = ftell(fp);
+    fseek(fp, 0, 0); // SEEK_SET
+    src = calloc(1, srclen + 1); // pad
+    fread(src, 1, srclen, fp);
     fclose(fp);
 
     lex();
@@ -533,6 +586,7 @@ int main(int argc, char **argv) {
 
     free(stack);
     free(data);
+    free(src);
 
     DEVPRINT("-------- exiting --------\n");
     DEVPRINT("script '%s' exit with code %d\n", argv[1], regs[RegEax]);

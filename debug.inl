@@ -73,7 +73,7 @@ void dump_code() {
         int src1 = (op & 0xFF0000) >> 16;
         int src2 = (op & 0xFF000000) >> 24;
         op = op & 0xFF;
-        DEVPRINT("[ 0x%04X ]", (pc + 1) << 2);
+        DEVPRINT("[ %4d ]", pc);
         switch (op) {
         case OpMov:
             DEVPRINT("  mov %s, ", reg2str(dest));
@@ -97,10 +97,16 @@ void dump_code() {
             DEVPRINT("  %s %s\n", op2str(op), reg2str(dest));
             break;
         case OpLoad:
-            DEVPRINT("  load %s [%s]\n", reg2str(dest), reg2str(src1));
+            DEVPRINT("  load %s, [%s]\n", reg2str(dest), reg2str(src1));
             break;
         case OpStore:
-            DEVPRINT("  store [%s] %s\n", reg2str(dest), reg2str(src1));
+            DEVPRINT("  store [%s], %s\n", reg2str(dest), reg2str(src1));
+            break;
+        case OpJump:
+            DEVPRINT("  jump %d\n", imme);
+            break;
+        case OpJZ:
+            DEVPRINT("  jz %d\n", imme);
             break;
         case CPrintf:
             DEVPRINT("  print\n");
