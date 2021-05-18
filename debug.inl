@@ -33,16 +33,6 @@ char* reg2str(int reg) {
     }
 }
 
-void dump_tk(int i) {
-    DEVPRINT("[ %-7s] ln:%d: [%.*s]\n", tk2str(g_tks[i].kind), g_tks[i].ln, g_tks[i].end - g_tks[i].start, g_tks[i].start);
-}
-
-void dump_tks() {
-    for (int i = 0; i < g_tkCnt; ++i) {
-        dump_tk(i);
-    }
-}
-
 void dump_code() {
     for (int pc = 0; pc < g_insCnt; ++pc) {
         int op = g_instructs[pc].op;

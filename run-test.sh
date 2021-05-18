@@ -21,7 +21,7 @@ testcase() {
 
     echo "Running test [$name]..."
 
-    gcc $file || exit 1
+    gcc -Wno-implicit-function-declaration $file || exit 1
     ./a > $name.expect
     ./cc $file > $name.actual
 
