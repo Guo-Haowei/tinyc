@@ -1,6 +1,4 @@
 #ifndef NOT_DEVELOPMENT
-#include <assert.h>
-#include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -115,7 +113,7 @@ int g_scopes[MAX_SCOPE];
 int scopeCnt;
 
 struct Symbol syms[MAX_SYMBOL];
-int symCnt;
+int g_symCnt;
 
 void expr();
 
@@ -278,15 +276,30 @@ void enter_scope() {
 
 // debug
 void debugprintsymbols() {
-    for (int i = 0; i < symCnt; ++i) {
+    DEVPRINT("********** symbol begin *************\n");
+    for (int i = 0; i < g_symCnt; ++i) {
         int idx = syms[i].tkIdx;
         char* start = g_tks[idx].start;
         char* end = g_tks[idx].end;
         int len = end - start;
 
-        DEVPRINT("%.*s: %d, scope %d\n", len, start, syms[i].address, syms[i].scope);
+        DEVPRINT("[scope %d] %.*s", syms[i].scope, len, start);
+        if (syms[i].type == FUNC) {
+            DEVPRINT("(");
+            for (int j = i + 1; syms[j].type == PARAM; ++j) {
+                int idx = syms[j].tkIdx;
+                char* start = g_tks[idx].start;
+                char* end = g_tks[idx].end;
+                int len = end - start;
+                DEVPRINT("%.*s,", len, start);
+            }
+            DEVPRINT(") {}");
+        } else if (syms[i].type == LOCAL) {
+            // DEVPRINT("%d, scope %d\n", len, start, syms[i].address, syms[i].scope);
+        }
+        DEVPRINT("\n");
     }
-    DEVPRINT("**********\n");
+    DEVPRINT("********** symbol end *************\n");
 }
 
 void exit_scope() {
@@ -294,9 +307,8 @@ void exit_scope() {
         panic("scope overflow");
     }
 
-    debugprintsymbols();
-    for (int i = symCnt - 1; syms[i].scope == g_scopes[scopeCnt - 1]; --i) {
-        --symCnt;
+    for (int i = g_symCnt - 1; syms[i].scope == g_scopes[scopeCnt - 1]; --i) {
+        --g_symCnt;
     }
 
     --scopeCnt;
@@ -340,11 +352,20 @@ void instruction(int op, int imme) {
 #define OP3(op, dest, src1) ((op) | (dest << 8) | (src1 << 16))
 #define OP(op, dest, src1, src2) ((op) | (dest << 8) | (src1 << 16) | (src2 << 24))
 
+struct CallToResolve {
+    int insIdx;
+    int tkIdx;
+};
+
+struct CallToResolve g_calls[256];
+int g_callNum;
+
 void expr_post() {
-    char* start = g_tks[g_tkIter].start;
-    char* end = g_tks[g_tkIter].end;
-    int ln = g_tks[g_tkIter].ln;
-    int kind = g_tks[g_tkIter++].kind;
+    int tkIdx = g_tkIter++;
+    char* start = g_tks[tkIdx].start;
+    char* end = g_tks[tkIdx].end;
+    int ln = g_tks[tkIdx].ln;
+    int kind = g_tks[tkIdx].kind;
     int len = end - start;
     if (kind == TK_INT) {
         int val = str2int(start, end);
@@ -371,8 +392,8 @@ void expr_post() {
         expect(TK_RP);
     } else if (kind == TK_ID) {
         int address = 0;
-        int type = 0;
-        for (int i = symCnt - 1; i >= 0; --i) {
+        int type = UNDEFINED;
+        for (int i = g_symCnt - 1; i >= 0; --i) {
             int tmp = syms[i].tkIdx;
             if (strncmp(g_tks[tmp].start, start, len) == 0) {
                 address = syms[i].address;
@@ -386,7 +407,22 @@ void expr_post() {
         }
 
         if (type == FUNC) {
-            panic("TODO: implement func call");
+            expect(TK_LP);
+            int argc;
+            for (argc = 0; g_tks[g_tkIter].kind != TK_RP; ++argc) {
+                if (argc > 0) expect(TK_COMMA);
+                expr();
+                instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+            }
+
+            g_calls[g_callNum].insIdx = g_insCnt;
+            g_calls[g_callNum++].tkIdx = tkIdx;
+
+            instruction(OP2(OP_CALL, 0), 0);
+            if (argc) {
+                instruction(OP(OP_ADD, ESP, ESP, IMME), argc << 2);
+            }
+            expect(TK_RP);
         } else if (type == GLOBAL) {
             panic("TODO: implement globlal variable");
         } else {
@@ -506,7 +542,7 @@ void stmt() {
                 instruction(OP(OP_SUB, ESP, ESP, IMME), 4);
                 char* start = g_tks[g_tkIter].start;
                 int len = g_tks[g_tkIter].end - start;
-                for (int i = symCnt - 1; syms[i].scope == g_scopes[scopeCnt - 1]; --i) {
+                for (int i = g_symCnt - 1; syms[i].scope == g_scopes[scopeCnt - 1]; --i) {
                     int tmpId = syms[i].tkIdx;
                     if (strncmp(g_tks[tmpId].start, start, len) == 0) {
                         ERROR(
@@ -515,20 +551,20 @@ void stmt() {
                     }
                 }
 
-                if (symCnt >= MAX_SYMBOL) {
+                if (g_symCnt >= MAX_SYMBOL) {
                     panic("symbol overflow");
                 }
 
-                int prev = symCnt - 1;
-                syms[symCnt].address = 4;
+                int prev = g_symCnt - 1;
+                syms[g_symCnt].address = 4;
                 if (prev >= 0 && syms[prev].type == LOCAL) {
-                    syms[symCnt].address += syms[prev].address;
+                    syms[g_symCnt].address += syms[prev].address;
                 }
 
-                syms[symCnt].type = LOCAL;
-                syms[symCnt].tkIdx = g_tkIter;
-                syms[symCnt].scope = g_scopes[scopeCnt - 1];
-                ++symCnt;
+                syms[g_symCnt].type = LOCAL;
+                syms[g_symCnt].tkIdx = g_tkIter;
+                syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
+                ++g_symCnt;
                 ++g_tkIter;
 
                 if (g_tks[g_tkIter].kind == TK_ASSIGN) {
@@ -564,6 +600,10 @@ void obj() {
     if (g_tks[g_tkIter].kind == TK_LP) {
         if (strncmp("main", g_tks[id].start, 4) == 0) {
             g_entry = g_insCnt;
+        } else {
+            syms[g_symCnt].type = FUNC;
+            syms[g_symCnt].tkIdx = id;
+            syms[g_symCnt++].address = g_insCnt;
         }
 
         enter_scope();
@@ -575,14 +615,14 @@ void obj() {
             }
 
             expect_type();
-            syms[symCnt].tkIdx = expect(TK_ID);
-            syms[symCnt].scope = g_scopes[scopeCnt - 1];
-            syms[symCnt++].type = PARAM;
+            syms[g_symCnt].tkIdx = expect(TK_ID);
+            syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
+            syms[g_symCnt++].type = PARAM;
             ++argCnt;
         }
         expect(TK_RP);
         for (int i = 1; i <= argCnt; i = i + 1) {
-            syms[symCnt - i].address = -((i + 1) << 2);
+            syms[g_symCnt - i].address = -((i + 1) << 2);
         }
 
         // save frame
@@ -599,7 +639,38 @@ void obj() {
 void gen(int argc, char** argv) {
     enter_scope();
 
-    obj();
+    while (g_tkIter < g_tkCnt) {
+        obj();
+    }
+
+    // resolve calls
+    if (g_callNum > (sizeof(g_calls) / sizeof(g_calls[0]))) {
+        panic("Call overflow");
+    }
+
+    for (int i = 0; i < g_callNum; ++i) {
+        int idx = g_calls[i].tkIdx;
+        char* start = g_tks[idx].start;
+        char* end = g_tks[idx].end;
+        int len = end - start;
+
+        int found = 0;
+        for (int j = 0; j < g_symCnt; ++j) {
+            if (syms[j].type == FUNC) {
+                int funcIdx = syms[j].tkIdx;
+                if (strncmp(start, g_tks[funcIdx].start, len) == 0) {
+                    found = 1;
+                    g_instructs[g_calls[i].insIdx].imme = syms[j].address;
+                    break;
+                }
+            }
+        }
+
+        if (!found) {
+            ERROR("unknown reference to call %.*s\n", len, start);
+        }
+
+    }
 
     exit_scope();
 
@@ -657,6 +728,7 @@ void exec() {
 
         if (op == OP_RET) {
             pc = ((int*)ram)[g_regs[ESP] >> 2];
+            g_regs[ESP] += 4;
             continue;
         }
 
@@ -716,8 +788,7 @@ int main(int argc, char **argv) {
     g_prog = argv[0];
 
     if (argc < 2) {
-        printf("Usage: %s [options] file\n", g_prog);
-        printf("Options:\n");
+        printf("Usage: %s file [args...]\n", g_prog);
         exit(1);
     }
 
@@ -742,8 +813,8 @@ int main(int argc, char **argv) {
     g_tks = calloc(len, sizeof(struct Token));
 
     lex();
-    // DEVPRINT("-------- lex --------\n");
-    // dump_tks();
+    DEVPRINT("-------- lex --------\n");
+    dump_tks();
 
     gen(argc - 1, argv + 1);
     DEVPRINT("-------- code --------\n");
