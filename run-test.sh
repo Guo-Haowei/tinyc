@@ -22,8 +22,8 @@ testcase() {
     echo "Running test [$name]..."
 
     gcc $file || exit 1
-    ./a > $name.expect || exit 1
-    ./cc $file > $name.actual || exit 1
+    ./a > $name.expect
+    ./cc $file > $name.actual
 
     diff $name.expect $name.actual
     if [ $? != 0 ]
