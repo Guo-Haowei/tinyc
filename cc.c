@@ -76,7 +76,8 @@ enum { _TK_OFFSET = 128,
        LIT_INT, TK_ID, LIT_STR, LIT_CHAR,
        TK_NE, /* != */ TK_EQ, /* == */
        TK_GE, /* >= */ TK_LE, /* <= */
-       TK_INC, /* += */ TK_DEC, /* -= */
+       TK_ADDEQ, /* += */ TK_SUBEQ, /* -= */
+       TK_INC, /* ++ */ TK_DEC, /* -- */
        TK_AND,/* && */ TK_OR, /* || */
        TK_LSHIFT, /* << */ TK_RSHIFT, /* >> */
        INT, CHAR, VOID,
@@ -106,7 +107,7 @@ struct Token {
 
 struct Symbol {
     // int datatype;
-    int type;
+    int storage;
     int tkIdx;
     int scope;
     int address; // offset to ebp
@@ -238,6 +239,14 @@ void lex() {
         else if (IS_PUNCT(p, '>', '=')) { g_tks[g_tkCnt].kind = TK_GE; ++p; }
         else if (IS_PUNCT(p, '<', '=')) { g_tks[g_tkCnt].kind = TK_LE; ++p; }
 
+        if (*p == '+') {
+            if (p[1] == '+') { g_tks[g_tkCnt].kind = TK_INC; ++p; }
+            else if (p[1] == '=') { g_tks[g_tkCnt].kind = TK_ADDEQ; ++p; }
+        } else if (*p == '-') {
+            if (p[1] == '-') { g_tks[g_tkCnt].kind = TK_DEC; ++p; }
+            else if (p[1] == '=') { g_tks[g_tkCnt].kind = TK_SUBEQ; ++p; }
+        }
+
         g_tks[g_tkCnt++].end = ++p;
     }
 }
@@ -260,9 +269,9 @@ void debugprintsymbols() {
         int len = end - start;
 
         DEVPRINT("[scope %d] %.*s", syms[i].scope, len, start);
-        if (syms[i].type == FUNC) {
+        if (syms[i].storage == FUNC) {
             DEVPRINT("(");
-            for (int j = i + 1; syms[j].type == PARAM; ++j) {
+            for (int j = i + 1; syms[j].storage == PARAM; ++j) {
                 int idx = syms[j].tkIdx;
                 char* start = g_tks[idx].start;
                 char* end = g_tks[idx].end;
@@ -270,7 +279,7 @@ void debugprintsymbols() {
                 DEVPRINT("%.*s,", len, start);
             }
             DEVPRINT(") {}");
-        } else if (syms[i].type == LOCAL) {
+        } else if (syms[i].storage == LOCAL) {
             // DEVPRINT("%d, scope %d\n", len, start, syms[i].address, syms[i].scope);
         }
         DEVPRINT("\n");
@@ -402,7 +411,7 @@ int post_expr() {
             int tmp = syms[i].tkIdx;
             if (strncmp(g_tks[tmp].start, start, len) == 0) {
                 address = syms[i].address;
-                type = syms[i].type;
+                type = syms[i].storage;
                 break;
             }
         }
@@ -499,6 +508,7 @@ int relation_expr() {
 
 int assign_expr() {
     relation_expr();
+
     for (;;) {
         int kind = g_tks[g_tkIter].kind;
         if (kind == '=') {
@@ -511,8 +521,32 @@ int assign_expr() {
             } else {
                 instruction(OP(OP_SAVE, EDX, EAX, 0), 4);
             }
+            continue;
         }
-        else break;
+
+        if (kind == TK_ADDEQ) {
+            ++g_tkIter;
+            instruction(OP(OP_PUSH, 0, 0, EDX), 0);
+            int rhs = relation_expr(); // rhs
+            instruction(OP2(OP_POP, EDX), 0);
+            instruction(OP(OP_LOAD, EBX, EDX, 0), 4);
+            instruction(OP(OP_ADD, EAX, EBX, EAX), 0);
+            instruction(OP(OP_SAVE, EDX, EAX, 0), 4);
+            continue;
+        }
+
+        if (kind == TK_SUBEQ) {
+            ++g_tkIter;
+            instruction(OP(OP_PUSH, 0, 0, EDX), 0);
+            int rhs = relation_expr();
+            instruction(OP2(OP_POP, EDX), 0);
+            instruction(OP(OP_LOAD, EBX, EDX, 0), 4);
+            instruction(OP(OP_SUB, EAX, EBX, EAX), 0);
+            instruction(OP(OP_SAVE, EDX, EAX, 0), 4);
+            continue;
+        }
+
+        break;
     }
 
     return INT;
@@ -618,11 +652,11 @@ void stmt() {
                     int prev = g_symCnt - 1;
                     syms[g_symCnt].address = 4;
 
-                    if (prev >= 0 && syms[prev].type == LOCAL) {
+                    if (prev >= 0 && syms[prev].storage == LOCAL) {
                         syms[g_symCnt].address += syms[prev].address;
                     }
 
-                    syms[g_symCnt].type = LOCAL;
+                    syms[g_symCnt].storage = LOCAL;
                     syms[g_symCnt].tkIdx = id;
                     syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
                     ++g_symCnt;
@@ -669,7 +703,7 @@ void obj() {
         if (strncmp("main", g_tks[id].start, 4) == 0) {
             g_entry = g_insCnt;
         } else {
-            syms[g_symCnt].type = FUNC;
+            syms[g_symCnt].storage = FUNC;
             syms[g_symCnt].tkIdx = id;
             syms[g_symCnt++].address = g_insCnt;
         }
@@ -689,7 +723,7 @@ void obj() {
 
             syms[g_symCnt].tkIdx = expect(TK_ID);
             syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
-            syms[g_symCnt++].type = PARAM;
+            syms[g_symCnt++].storage = PARAM;
             ++argCnt;
         }
         expect(')');
@@ -728,7 +762,7 @@ void gen(int argc, char** argv) {
 
         int found = 0;
         for (int j = 0; j < g_symCnt; ++j) {
-            if (syms[j].type == FUNC) {
+            if (syms[j].storage == FUNC) {
                 int funcIdx = syms[j].tkIdx;
                 if (strncmp(start, g_tks[funcIdx].start, len) == 0) {
                     found = 1;
@@ -877,7 +911,7 @@ void dump_tokens() {
             ln = tkln;
         }
         char* names = "INT   ID    STR   CHAR  NE    EQ    LE    GE    "
-                      "INC   DEC   AND   OR    LSHIFTRSHIFT"
+                      "ADDEQ SUBEQ INC   DEC   AND   OR    LSHIFTRSHIFT"
                       "Int   Char  Void  "
                       "Break Cont  Do    Else  Enum  For   If    Ret   SizeofWhile "
                       "PrintfExit  ";

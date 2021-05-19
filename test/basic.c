@@ -1,6 +1,7 @@
 #include <stdio.h>
 
 void test_literal() {
+    printf("test literal\n");
     printf("%d\n", 123);
     printf("%X\n", 0xF);
     printf("%X\n", 0x1F2C);
@@ -12,7 +13,8 @@ void test_literal() {
     return;
 }
 
-void test_basic() {
+void test_arith() {
+    printf("test arith\n");
     printf("%d\n", 0);
     printf("%d\n", 31 + 15);
     printf("%d\n", 145 - 199);
@@ -38,7 +40,8 @@ void test_basic() {
     return;
 }
 
-void test_equality() {
+void test_relational() {
+    printf("test ralational\n");
     printf("%d\n", 1 > 0);
     printf("%d\n", 0 < 1);
     printf("%d\n", 1 < 0);
@@ -61,6 +64,20 @@ void test_equality() {
     printf("%d\n", 7 <= 6);
     printf("%d\n", 7 <= 7);
     printf("%d\n", 0xFFFF > 1);
+    return;
+}
+
+void test_assign() {
+    printf("test assignment\n");
+    int v;
+    v = 5;
+    printf("%d\n", v -= 1);
+    printf("%d\n", v);
+    v += v + 5;
+    printf("%d\n", v);
+    v -= 2 - v;
+    printf("%d\n", v);
+    printf("%d\n", v += v * v);
     return;
 }
 
@@ -102,8 +119,8 @@ void test_equality() {
 
 int main() {
     test_literal();
-    test_basic();
-    test_equality();
+    test_arith();
+    test_relational();
+    test_assign();
     return 0;
 }
-
