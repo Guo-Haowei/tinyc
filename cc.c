@@ -30,8 +30,8 @@
 //- div dst, src1, src2     >-- dst = src1 / src2
 //- rem dst, src1, src2     >-- dst = src1 % src2
 //-
-//- store dst, src2         >-- [dst] = src2
-//- load dst, src1          >-- [dst] = src1 /// TODO: need rework?
+//- save dst, src2, byte    >-- [dst] = src2
+//- load dst, src1, byte    >-- dst = [src1]
 //-
 //- jz src2                 >-- if eax == 0; pc = src2
 //- jump src2               >-- pc = src2
@@ -48,7 +48,6 @@
 
 // definitions
 #define RAM_SIZE (1 << 20)
-#define MAX_SYMBOL (1 << 8)
 #define MAX_INS (1 << 12)
 #define MAX_PRINF_ARGS 8
 
@@ -81,15 +80,15 @@ enum { _TK_OFFSET = 128,
        TK_AND,/* && */ TK_OR, /* || */
        TK_LSHIFT, /* << */ TK_RSHIFT, /* >> */
        INT, CHAR, VOID,
-       KW_BREAK, KW_CONTINUE, KW_ELSE, KW_ENUM, KW_FOR,
-       KW_IF, KW_RETURN, KW_SIZEOF, KW_WHILE,
+       KW_BREAK, KW_CONTINUE, KW_DO, KW_ELSE, KW_ENUM,
+       KW_FOR, KW_IF, KW_RETURN, KW_SIZEOF, KW_WHILE,
        C_PRINTF, C_EXIT,
        TK_COUNT };
 // Identifier Kind
 enum { UNDEFINED, GLOBAL, PARAM, LOCAL, FUNC, ENUM };
 // Opcode
 enum { OP_ADD = 128, OP_SUB, OP_MUL, OP_DIV, OP_REM,
-       OP_MOV, OP_PUSH, OP_POP, OP_STORE, OP_LOAD, OP_LOADBYTE,
+       OP_MOV, OP_PUSH, OP_POP, OP_LOAD, OP_SAVE,
        OP_NE, OP_EQ, OP_GT, OP_GE, OP_LT, OP_LE,
        OP_RET,
        OP_JZ, OP_JUMP,
@@ -138,7 +137,7 @@ int g_scopeId;
 int g_scopes[MAX_SCOPE];
 int scopeCnt;
 
-struct Symbol syms[MAX_SYMBOL];
+struct Symbol* syms;
 int g_symCnt;
 
 int expr();
@@ -180,7 +179,7 @@ void lex() {
             g_tks[g_tkCnt].kind = TK_ID;
             for (++p; IS_LETTER(*p) || IS_DIGIT(*p) || *p == '_'; ++p);
             char *kw = "int char void "
-                       "break continue else enum for if return sizeof while "
+                       "break continue do else enum for if return sizeof while "
                        "printf exit ";
             char *p0 = kw, *p1 = kw;
             for (int kind = INT; (p1 = strchr(p0, ' ')); p0 = p1 + 1, ++kind) {
@@ -293,8 +292,9 @@ void exit_scope() {
 
 int expect(int kind) {
     if (g_tks[g_tkIter].kind != kind) {
-        ERROR("%d: expected token(%d), got '%.*s'\n",
+        ERROR("%d: expected token '%c'(%d), got '%.*s'\n",
             g_tks[g_tkIter].ln,
+            kind < 128 ? kind : ' ',
             kind,
             g_tks[g_tkIter].end - g_tks[g_tkIter].start,
             g_tks[g_tkIter].start);
@@ -337,7 +337,7 @@ struct CallToResolve {
 struct CallToResolve g_calls[256];
 int g_callNum;
 
-int expr_post() {
+int post_expr() {
     int tkIdx = g_tkIter++;
     char* start = g_tks[tkIdx].start;
     char* end = g_tks[tkIdx].end;
@@ -381,7 +381,7 @@ int expr_post() {
             int argc;
             for (argc = 0; g_tks[g_tkIter].kind != ')'; ++argc) {
                 if (argc > 0) expect(',');
-                expr();
+                assign_expr();
                 instruction(OP(OP_PUSH, 0, 0, EAX), 0);
             }
 
@@ -416,7 +416,7 @@ int expr_post() {
         }
 
         instruction(OP(OP_SUB, EDX, EBP, IMME), address);
-        instruction(OP(OP_LOAD, EAX, EDX, 0), 0);
+        instruction(OP(OP_LOAD, EAX, EDX, 0), 4);
         return 0;
     }
 
@@ -425,7 +425,7 @@ int expr_post() {
         int argc = 0;
         for (; g_tks[g_tkIter].kind != ')'; ++argc) {
             if (argc > 0) expect(',');
-            expr();
+            assign_expr();
             instruction(OP(OP_PUSH, 0, 0, EAX), 0);
         }
         if (argc > MAX_PRINF_ARGS) panic("printf supports at most %d args");
@@ -440,8 +440,8 @@ int expr_post() {
     return INT;
 }
 
-int expr_mul() {
-    expr_post();
+int mul_expr() {
+    post_expr();
     for (;;) {
         int optk = g_tks[g_tkIter].kind; int opcode;
         if (optk == '*') opcode = OP_MUL;
@@ -450,7 +450,7 @@ int expr_mul() {
         else break;
         ++g_tkIter;
         instruction(OP(OP_PUSH, 0, 0, EAX), 0);
-        expr_post();
+        post_expr();
         instruction(OP2(OP_POP, EBX), 0);
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
@@ -458,9 +458,9 @@ int expr_mul() {
     return 0;
 }
 
-int expr_add() {
+int add_expr() {
     /// TODO: data types
-    expr_mul();
+    mul_expr();
     for (;;) {
         int optk = g_tks[g_tkIter].kind; int opcode;
         if (optk == '+') opcode = OP_ADD;
@@ -468,7 +468,7 @@ int expr_add() {
         else break;
         ++g_tkIter;
         instruction(OP(OP_PUSH, 0, 0, EAX), 0);
-        expr_mul();
+        mul_expr();
         instruction(OP2(OP_POP, EBX), 0);
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
@@ -476,35 +476,61 @@ int expr_add() {
     return 0;
 }
 
-int expr_equal() {
-    expr_add();
+int relation_expr() {
+    add_expr();
     for (;;) {
-        int optk = g_tks[g_tkIter].kind; int opcode;
-        if (optk == TK_NE) opcode = OP_NE;
-        else if (optk == TK_EQ) opcode = OP_EQ;
-        else if (optk == '<') opcode = OP_LT;
-        else if (optk == '>') opcode = OP_GT;
-        else if (optk == TK_GE) opcode = OP_GE;
-        else if (optk == '<') opcode = OP_LT;
-        else if (optk == TK_LE) opcode = OP_LE;
+        int kind = g_tks[g_tkIter].kind; int opcode;
+        if (kind == TK_NE) opcode = OP_NE;
+        else if (kind == TK_EQ) opcode = OP_EQ;
+        else if (kind == '<') opcode = OP_LT;
+        else if (kind == '>') opcode = OP_GT;
+        else if (kind == TK_GE) opcode = OP_GE;
+        else if (kind == '<') opcode = OP_LT;
+        else if (kind == TK_LE) opcode = OP_LE;
         else break;
         ++g_tkIter;
         instruction(OP(OP_PUSH, 0, 0, EAX), 0);
-        expr_add();
+        add_expr();
         instruction(OP2(OP_POP, EBX), 0);
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
     return INT;
 }
 
+int assign_expr() {
+    relation_expr();
+    for (;;) {
+        int kind = g_tks[g_tkIter].kind;
+        if (kind == '=') {
+            ++g_tkIter;
+            instruction(OP(OP_PUSH, 0, 0, EDX), 0);
+            int rhs = relation_expr();
+            instruction(OP2(OP_POP, EDX), 0);
+            if (rhs == CHAR) {
+                panic("TODO: implement load char");
+            } else {
+                instruction(OP(OP_SAVE, EDX, EAX, 0), 4);
+            }
+        }
+        else break;
+    }
+
+    return INT;
+}
+
 int expr() {
-    return expr_equal();
+    int type = assign_expr();
+    while (g_tks[g_tkIter].kind == ',') {
+        g_tkIter += 1;
+        type = assign_expr();
+    }
+    return type;
 }
 
 void stmt() {
     int kind = g_tks[g_tkIter].kind;
     if (kind == KW_RETURN) {
-        if (g_tks[++g_tkIter].kind != ';') expr();
+        if (g_tks[++g_tkIter].kind != ';') assign_expr();
         instruction(OP(OP_MOV, ESP, 0, EBP), 0);
         instruction(OP2(OP_POP, EBP), 0);
         instruction(OP_RET, 0);
@@ -513,29 +539,65 @@ void stmt() {
     }
 
     if (kind == KW_IF) {
-        // if eax == 0, jmp L1
-        // ...
-        // jump L2:
-        // L1: ...
-        // L2: ...
+        //     eax == 0; goto L1 |     eax == 0; goto L1
+        //     ...               |     ...
+        //     goto L2           | L1: ...
+        // L1: ...               |
+        // L2: ...               |
         ++g_tkIter;
-        expect('(');
-        expr();
-        expect(')');
-        int jump1Loc = g_insCnt;
+        expect('('); expr(); expect(')');
+        int goto_L1 = g_insCnt;
         instruction(OP_JZ, 0);
         stmt();
-        int jump2Loc = g_insCnt;
-        instruction(OP_JUMP, g_insCnt + 1);
-        g_instructs[jump1Loc].imme = g_insCnt;
-        if (g_tks[g_tkIter].kind == KW_ELSE) {
-            ++g_tkIter; // skip else
-            stmt();
-            g_instructs[jump2Loc].imme = g_insCnt;
+
+        if (g_tks[g_tkIter].kind != KW_ELSE) {
+            g_instructs[goto_L1].imme = g_insCnt;
+            return;
         }
+
+        ++g_tkIter; // skip else
+        int goto_L2 = g_insCnt;
+        instruction(OP_JUMP, g_insCnt + 1);
+        g_instructs[goto_L1].imme = g_insCnt;
+        stmt();
+        g_instructs[goto_L2].imme = g_insCnt;
         return;
     }
-    
+
+    if (kind == KW_WHILE) {
+        // TEST: ...
+        //       eax == 0; goto END
+        //       ...
+        //       jump TEST;
+        // END:
+        int test_label = g_insCnt;
+        ++g_tkIter;
+        expect('('); expr(); expect(')');
+        int goto_end = g_insCnt;
+        instruction(OP_JZ, 0);
+        stmt();
+        instruction(OP_JUMP, test_label);
+        g_instructs[goto_end].imme = g_insCnt;
+        return;
+    }
+
+    if (kind == KW_DO) {
+        // START: ...
+        //        eax == 0; goto END
+        //        jump START;
+        // EMD:   ...
+        int start_label = g_insCnt;
+        ++g_tkIter;
+        stmt();
+        expect(KW_WHILE);
+        expect('('); expr(); expect(')');
+        int goto_end = g_insCnt;
+        instruction(OP_JZ, 0);
+        instruction(OP_JUMP, start_label);
+        g_instructs[goto_end].imme = g_insCnt;
+        return;
+    }
+
     if (kind == '{') {
         enter_scope();
         ++g_tkIter;
@@ -543,39 +605,40 @@ void stmt() {
         while (g_tks[g_tkIter].kind != '}') {
             kind = g_tks[g_tkIter].kind;
             if (IS_TYPE(kind)) {
-                int base_type = kind; ++g_tkIter;
-                char* start = g_tks[g_tkIter].start;
-                int len = g_tks[g_tkIter].end - start;
-                /// TODO: remove this
-                for (int i = g_symCnt - 1; syms[i].scope == g_scopes[scopeCnt - 1]; --i) {
-                    int tmpId = syms[i].tkIdx;
-                    if (strncmp(g_tks[tmpId].start, start, len) == 0)
-                        ERROR("%d: redeclaration of '%.*s', previously defined on line %d\n", g_tks[g_tkIter].ln, len, start, g_tks[tmpId].ln);
-                }
-
-                if (g_symCnt >= MAX_SYMBOL) { panic("symbol overflow"); }
-
-                int prev = g_symCnt - 1;
-                syms[g_symCnt].address = 4;
-                if (prev >= 0 && syms[prev].type == LOCAL) {
-                    syms[g_symCnt].address += syms[prev].address;
-                }
-
-                syms[g_symCnt].type = LOCAL;
-                syms[g_symCnt].tkIdx = g_tkIter;
-                syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
-                ++g_symCnt;
                 ++g_tkIter;
+                int base_type = kind, varNum = 0;
+                do {
+                    if (varNum > 0) {
+                        expect(',');
+                    }
 
-                instruction(OP(OP_SUB, ESP, ESP, IMME), 4);
-                if (g_tks[g_tkIter].kind == '=') {
-                    ++g_tkIter;
-                    expr();
-                    instruction(OP(OP_STORE, ESP, EAX, 0), 0);
-                }
+                    int id = expect(TK_ID);
+                    char* start = g_tks[id].start;
+                    int len = g_tks[id].end - start;
+                    int prev = g_symCnt - 1;
+                    syms[g_symCnt].address = 4;
 
-                ++restore;
-                expect(';');
+                    if (prev >= 0 && syms[prev].type == LOCAL) {
+                        syms[g_symCnt].address += syms[prev].address;
+                    }
+
+                    syms[g_symCnt].type = LOCAL;
+                    syms[g_symCnt].tkIdx = id;
+                    syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
+                    ++g_symCnt;
+                    // ++g_tkIter;
+
+                    instruction(OP(OP_SUB, ESP, ESP, IMME), 4);
+                    if (g_tks[g_tkIter].kind == '=') {
+                        ++g_tkIter;
+                        assign_expr();
+                        instruction(OP(OP_SAVE, ESP, EAX, 0), 4);
+                    }
+
+                    ++restore, ++varNum;
+                } while (g_tks[g_tkIter].kind != ';');
+
+                ++g_tkIter;
             } else {
                 stmt();
             }
@@ -773,9 +836,15 @@ void exec() {
             g_regs[dest] = g_regs[src1] <= value;
         } else if (op == OP_LT) {
             g_regs[dest] = g_regs[src1] < value;
-        } else if (op == OP_STORE) {
+        } else if (op == OP_SAVE) {
+            if (imme != 4) {
+                panic("TODO: implement save byte");
+            }
             ((int*)ram)[g_regs[dest] >> 2] = g_regs[src1];
         } else if (op == OP_LOAD) {
+            if (imme != 4) {
+                panic("TODO: implement load byte");
+            }
             g_regs[dest] = ((int*)ram)[g_regs[src1] >> 2];
         } else if (op == OP_PRINTF) {
             int slot = g_regs[ESP] >> 2;
@@ -810,7 +879,7 @@ void dump_tokens() {
         char* names = "INT   ID    STR   CHAR  NE    EQ    LE    GE    "
                       "INC   DEC   AND   OR    LSHIFTRSHIFT"
                       "Int   Char  Void  "
-                      "Break Cont  Else  Enum  For   If    Ret   SizeofWhile "
+                      "Break Cont  Do    Else  Enum  For   If    Ret   SizeofWhile "
                       "PrintfExit  ";
 
         printf("%.*s", len, start);
@@ -855,6 +924,10 @@ int main(int argc, char **argv) {
     fclose(fp);
 
     g_tks = calloc(len, sizeof(struct Token));
+    syms = calloc(len, sizeof(struct Symbol));
+
+    int i = len * (1 + sizeof(struct Token) + sizeof(struct Symbol));
+    DEVPRINT("allocate %d kb\n", i / 1024);
 
     lex();
     DEVPRINT("-------- lex --------\n");

@@ -1,7 +1,20 @@
 #include <stdio.h>
 
-int main() {
-    int a = 51;
+void one() {
+    int a = 31;
+    {
+        int a = 64;
+        printf("%d\n", a);
+    }
+    printf("%d\n", a);
+    {
+        int a = 0x10;
+        printf("%d\n", a);
+    }
+    return;
+}
+
+void two(int a) {
     int b = 102;
     printf("%d\n", a);
     printf("%d\n", b);
@@ -30,5 +43,15 @@ int main() {
     int c = 111 + b - a;
     printf("%d\n", a);
     printf("%d\n", c);
+    return;
+}
+
+int main() {
+    one();
+    two(0xAA9);
+    int a = 42, b = 1, c = 6;
+    printf("a: %d, b: %d, c: %d\n", a, b, c);
+    a = b, b = c, c = a;
+    printf("a: %d, b: %d, c: %d\n", a, b, c);
     return 0;
 }

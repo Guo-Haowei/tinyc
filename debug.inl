@@ -41,6 +41,7 @@ void dump_code() {
         int src1 = (op & 0xFF0000) >> 16;
         int src2 = (op & 0xFF000000) >> 24;
         op = op & 0xFF;
+        char* width = imme == 4 ? "word" : "byte";
         DEVPRINT("[ %4d ] ", pc);
         switch (op) {
         case OP_MOV:
@@ -76,10 +77,10 @@ void dump_code() {
             DEVPRINT("  %s %s\n", op2str(op), reg2str(dest));
             break;
         case OP_LOAD:
-            DEVPRINT("  load %s, [%s]\n", reg2str(dest), reg2str(src1));
+            DEVPRINT("  load %s, %s[%s]\n", reg2str(dest), width, reg2str(src1));
             break;
-        case OP_STORE:
-            DEVPRINT("  store [%s], %s\n", reg2str(dest), reg2str(src1));
+        case OP_SAVE:
+            DEVPRINT("  save %s[%s], %s\n", width, reg2str(dest), reg2str(src1));
             break;
         case OP_JUMP:
             DEVPRINT("  jump %d\n", imme);
