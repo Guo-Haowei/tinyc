@@ -91,6 +91,9 @@ void dump_code() {
         case OP_JZ:
             DEVPRINT("  jz %d\n", imme);
             break;
+        case OP_JNZ:
+            DEVPRINT("  jnz %d\n", imme);
+            break;
         case OP_CALL:
             DEVPRINT("  call %d\n", imme);
             break;

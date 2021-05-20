@@ -8,7 +8,7 @@ This project is a tiny C interpreter.
 - [x] unary `+, -, !`
 - [x] assignment `=, +=, -=`
 - [ ] increment `++, --`
-- [ ] logical `&&, ||`
+- [x] logical `&&, ||`
 - [ ] bitwise `&, |, >>, <<`
 - [ ] address `*, []`
 - [ ] dereference `&`

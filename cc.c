@@ -92,7 +92,7 @@ enum { OP_ADD = 128, OP_SUB, OP_MUL, OP_DIV, OP_REM,
        OP_MOV, OP_PUSH, OP_POP, OP_LOAD, OP_SAVE,
        OP_NE, OP_EQ, OP_GT, OP_GE, OP_LT, OP_LE,
        OP_NOT, OP_RET,
-       OP_JZ, OP_JUMP, OP_CALL,
+       OP_JZ, OP_JNZ, OP_JUMP, OP_CALL,
        OP_PRINTF, OP_FOPEN, OP_FGETC, OP_MALLOC, OP_MEMSET, OP_EXIT };
 enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME };
 
@@ -238,6 +238,8 @@ void lex() {
         else if (IS_PUNCT(p, '!', '=')) { g_tks[g_tkCnt].kind = TK_NE; ++p; }
         else if (IS_PUNCT(p, '>', '=')) { g_tks[g_tkCnt].kind = TK_GE; ++p; }
         else if (IS_PUNCT(p, '<', '=')) { g_tks[g_tkCnt].kind = TK_LE; ++p; }
+        else if (IS_PUNCT(p, '&', '&')) { g_tks[g_tkCnt].kind = TK_AND; ++p; }
+        else if (IS_PUNCT(p, '|', '|')) { g_tks[g_tkCnt].kind = TK_OR; ++p; }
 
         if (*p == '+') {
             if (p[1] == '+') { g_tks[g_tkCnt].kind = TK_INC; ++p; }
@@ -582,15 +584,42 @@ int relation_expr() {
     return datatype;
 }
 
-int assign_expr() {
+int logical_expr() {
     int datatype = relation_expr();
+    for (;;) {
+        int kind = g_tks[g_tkIter].kind;
+        if (kind == TK_AND) {
+            ++g_tkIter;
+            int skip = g_insCnt;
+            instruction(OP_JZ, 0);
+            relation_expr();
+            g_instructs[skip].imme = g_insCnt;
+            continue;
+        }
 
+        if (kind == TK_OR) {
+            ++g_tkIter;
+            int skip = g_insCnt;
+            instruction(OP_JNZ, 0);
+            relation_expr();
+            g_instructs[skip].imme = g_insCnt;
+            continue;
+        }
+
+        break;
+    }
+
+    return datatype;
+}
+
+int assign_expr() {
+    int datatype = logical_expr();
     for (;;) {
         int kind = g_tks[g_tkIter].kind;
         if (kind == '=') {
             ++g_tkIter;
             instruction(OP(OP_PUSH, 0, 0, EDX), 0);
-            int rhs = relation_expr();
+            int rhs = logical_expr();
             instruction(OP2(OP_POP, EDX), 0);
             if (rhs == CHAR) {
                 panic("TODO: implement load char");
@@ -916,6 +945,12 @@ void exec() {
 
         if (op == OP_JZ) {
             if (g_regs[EAX] == 0) pc = imme;
+            else pc = pc + 1;
+            continue;
+        }
+
+        if (op == OP_JNZ) {
+            if (g_regs[EAX]) pc = imme;
             else pc = pc + 1;
             continue;
         }

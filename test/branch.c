@@ -11,5 +11,29 @@ int main() {
     { int div = 2; if (six_6 % div == 0) printf("%d divisible by %d\n", six_6, div); }
     { int div = 5; if (six_6 % div == 0) printf("%d divisible by %d\n", six_6, div); }
 
+    {
+        int num = 128;
+        if (num && (num = num / 2) && (num = num / 4)) {
+            printf("num is %d\n", num);
+        }
+    }
+    {
+        int num = 128;
+        (1 && 0 && (num = num / 4));
+        printf("num is %d\n", num);
+    }
+    {
+        int num = 77;
+        if (num % 5 == 0 || num % 7 == 0 || num % 4 == 0) {
+            printf("%d is divisible by 4, 5 or 7\n", num);
+        }
+    }
+    {
+        int num = 35;
+        if (num % 5 || num % 7 || num % 4 == 0) {
+            printf("%d is divisible by 4, 5 or 7\n", num);
+        }
+    }
+
     return 0;
 }
