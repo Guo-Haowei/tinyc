@@ -23,15 +23,15 @@
 //- push src2               >-- esp -= 4; [esp] = src2
 //- pop dest                >-- dest = [esp]; esp += 4
 //- mov dest, src2          >-- dest = src2
+//- save dst, src2, byte    >-- [dst] = src2
+//- load dst, src1, byte    >-- dst = [src1]
 //-
 //- add dst, src1, src2     >-- dst = src1 + src2
 //- sub dst, src1, src2     >-- dst = src1 - src2
 //- mul dst, src1, src2     >-- dst = src1 * src2
 //- div dst, src1, src2     >-- dst = src1 / src2
 //- rem dst, src1, src2     >-- dst = src1 % src2
-//-
-//- save dst, src2, byte    >-- [dst] = src2
-//- load dst, src1, byte    >-- dst = [src1]
+//- not dst                 >-- dst = !dst
 //-
 //- jz src2                 >-- if eax == 0; pc = src2
 //- jump src2               >-- pc = src2
@@ -91,6 +91,7 @@ enum { UNDEFINED, GLOBAL, PARAM, LOCAL, FUNC, ENUM };
 enum { OP_ADD = 128, OP_SUB, OP_MUL, OP_DIV, OP_REM,
        OP_MOV, OP_PUSH, OP_POP, OP_LOAD, OP_SAVE,
        OP_NE, OP_EQ, OP_GT, OP_GE, OP_LT, OP_LE,
+       OP_NOT,
        OP_RET,
        OP_JZ, OP_JUMP,
        OP_CALL,
@@ -449,8 +450,36 @@ int post_expr() {
     return INT;
 }
 
+int unary_expr() {
+    int kind = g_tks[g_tkIter].kind;
+    if (kind == '!') {
+        ++g_tkIter;
+        int rhs = unary_expr();
+        instruction(OP(OP_NOT, EAX, 0, 0), 0);
+        return rhs;
+    }
+    if (kind == '+') {
+        ++g_tkIter;
+        return unary_expr();
+    }
+    if (kind == '-') {
+        ++g_tkIter;
+        int rhs = unary_expr();
+        instruction(OP(OP_MOV, EBX, 0, IMME), 0);
+        instruction(OP(OP_SUB, EAX, EBX, EAX), 0);
+        return rhs;
+    }
+    if (kind == '&') {
+        panic("implement &a");
+    }
+    if (kind == '*') {
+        panic("implement *a");
+    }
+    return post_expr();
+}
+
 int mul_expr() {
-    post_expr();
+    unary_expr();
     for (;;) {
         int optk = g_tks[g_tkIter].kind; int opcode;
         if (optk == '*') opcode = OP_MUL;
@@ -459,7 +488,7 @@ int mul_expr() {
         else break;
         ++g_tkIter;
         instruction(OP(OP_PUSH, 0, 0, EAX), 0);
-        post_expr();
+        unary_expr();
         instruction(OP2(OP_POP, EBX), 0);
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
@@ -543,6 +572,20 @@ int assign_expr() {
             instruction(OP(OP_LOAD, EBX, EDX, 0), 4);
             instruction(OP(OP_SUB, EAX, EBX, EAX), 0);
             instruction(OP(OP_SAVE, EDX, EAX, 0), 4);
+            continue;
+        }
+
+        if (kind == '?') {
+            ++g_tkIter;
+            int goto_L1 = g_insCnt;
+            instruction(OP_JZ, 0);
+            int lhs = expr();
+            expect(':');
+            int goto_L2 = g_insCnt;
+            instruction(OP_JUMP, g_insCnt + 1);
+            g_instructs[goto_L1].imme = g_insCnt;
+            int rhs = assign_expr();
+            g_instructs[goto_L2].imme = g_insCnt;
             continue;
         }
 
@@ -648,7 +691,6 @@ void stmt() {
 
                     int id = expect(TK_ID);
                     char* start = g_tks[id].start;
-                    int len = g_tks[id].end - start;
                     int prev = g_symCnt - 1;
                     syms[g_symCnt].address = 4;
 
@@ -660,7 +702,6 @@ void stmt() {
                     syms[g_symCnt].tkIdx = id;
                     syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
                     ++g_symCnt;
-                    // ++g_tkIter;
 
                     instruction(OP(OP_SUB, ESP, ESP, IMME), 4);
                     if (g_tks[g_tkIter].kind == '=') {
@@ -870,6 +911,8 @@ void exec() {
             g_regs[dest] = g_regs[src1] <= value;
         } else if (op == OP_LT) {
             g_regs[dest] = g_regs[src1] < value;
+        } else if (op == OP_NOT) {
+            g_regs[dest] = !g_regs[dest];
         } else if (op == OP_SAVE) {
             if (imme != 4) {
                 panic("TODO: implement save byte");

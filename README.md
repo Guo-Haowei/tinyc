@@ -5,15 +5,15 @@ This project is a tiny C interpreter.
 - [x] decimal, hex, char and string literal
 - [x] arith `+, -, *, /, %`
 - [x] relational `>, <, >=, <=, !=, ==`,
-- [ ] unary `+, -`
+- [x] unary `+, -, !`
 - [x] assignment `=, +=, -=`
 - [ ] increment `++, --`
-- [ ] logical `&&, ||, !`
+- [ ] logical `&&, ||`
 - [ ] bitwise `&, |, >>, <<`
 - [ ] address `*, []`
 - [ ] dereference `&`
 
-- [ ] branch `if, else, ?:`
+- [x] branch `if, else, ?:`
 - [ ] iteration `do, while, for, break, continue`
 
 - [ ] `enum`

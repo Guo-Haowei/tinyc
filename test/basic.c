@@ -26,17 +26,17 @@ void test_arith() {
     printf("%d\n", 64 / 4 / 4);
     printf("%d\n", 64 / (4 / 4));
     printf("%d\n", 14 + 12 * 3 - 4 / 2 + (53 - 23) - 456 % 34);
-    printf("%d\n", 1 + 2 + 3 + 4);
-    printf("%d\n", 1 + 2 * 3 + 4);
-    printf("%d\n", 1 * 2 + 3 * 4);
-    printf("%d\n", 4 / 2 + 6 / 3);
+    printf("%d\n", 1 + 2 + -3 + 4);
+    printf("%d\n", 1 + 2 * -3 + 4);
+    printf("%d\n", 1 * 2 + 3 * +4);
+    printf("%d\n", 4 / 2 + 6 / +3);
     printf("%d\n", 24 / 2 / 3);
     printf("%d\n", 24 % 7);
     printf("%d\n", 24 % 3);
     printf("%d\n", 'a' + 1);
     int a = 0 - 1;
     printf("%d\n", a);
-    // printf("%d\n", a + -1);
+    printf("%d\n", a + -1);
     return;
 }
 
@@ -93,34 +93,31 @@ void test_assign() {
 //     expect(15, a);
 // }
 
-// static void test_bool() {
-//     expect(0, !1);
-//     expect(1 ,!0);
-// }
+void test_unary() {
+    int x = 2, y = 9, z = 14214;
+    printf("%d\n", -x);
+    printf("%d\n", +y);
+    printf("%d\n", -z);
+    return;
+}
 
-// static void test_ternary() {
-//     expect(51, (1 + 2) ? 51 : 52);
-//     expect(52, (1 - 1) ? 51 : 52);
-//     expect(26, (1 - 1) ? 51 : 52 / 2);
-//     expect(17, (1 - 0) ? 51 / 3 : 52);
-//     // GNU extension
-//     expect(52, 0 ?: 52);
-//     expect(3, (1 + 2) ?: 52);
-// }
-
-// static void test_unary() {
-//     char x = 2;
-//     short y = 2;
-//     int z = 2;
-//     expect(-2, -x);
-//     expect(-2, -y);
-//     expect(-2, -z);
-// }
+void test_ternary() {
+    int x = 2, y = 9, z = 14214;
+    printf("%s\n", !1 ? "false" : "true");
+    printf("%s\n" ,!0 ? "true" : "false");
+    printf("%d\n" , y > x ? y += z : x);
+    printf("%d\n", (1 + 2) ? 51 : 52);
+    printf("%d\n", (1 - 1) ? 51 : 52);
+    printf("%d\n", (1 - 1) ? 51 : 52 / 2);
+    printf("%d\n", (1 - 0) ? 51 / 3 : 52);
+    return;
+}
 
 int main() {
     test_literal();
     test_arith();
     test_relational();
     test_assign();
+    test_unary();
     return 0;
 }

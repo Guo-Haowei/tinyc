@@ -69,6 +69,9 @@ void dump_code() {
         case OP_LE:
             DEVPRINT("  %s %s, %s, %s\n", op2str(op), reg2str(dest), reg2str(src1), reg2str(src2));
             break;
+        case OP_NOT:
+            DEVPRINT("  not %s\n", reg2str(dest));
+            break;
         case OP_PUSH:
             if (src2 == IMME) DEVPRINT("  %s %d\n", op2str(op), imme);
             else DEVPRINT("  %s %s\n", op2str(op), reg2str(src2));
