@@ -73,7 +73,7 @@ void dump_code() {
             DEVPRINT("  not %s\n", reg2str(dest));
             break;
         case OP_PUSH:
-            if (src2 == IMME) DEVPRINT("  %s %d\n", op2str(op), imme);
+            if (src2 == IMME) DEVPRINT("  %s %d(0x%08X)\n", op2str(op), imme, imme);
             else DEVPRINT("  %s %s\n", op2str(op), reg2str(src2));
             break;
         case OP_POP:
@@ -96,6 +96,15 @@ void dump_code() {
             break;
         case OP_PRINTF:
             DEVPRINT("  print\n");
+            break;
+        case OP_FOPEN:
+            DEVPRINT("  fopen\n");
+            break;
+        case OP_FGETC:
+            DEVPRINT("  fgetc\n");
+            break;
+        case OP_MALLOC:
+            DEVPRINT("  malloc\n");
             break;
         default:
             panic("Invalid op code");

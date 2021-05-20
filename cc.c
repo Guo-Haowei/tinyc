@@ -47,7 +47,6 @@
 #endif // #ifndef NOT_DEVELOPMENT
 
 // definitions
-#define RAM_SIZE (1 << 20)
 #define MAX_INS (1 << 12)
 #define MAX_PRINF_ARGS 8
 
@@ -60,7 +59,6 @@
 #else
 #define DEVPRINT(...) fprintf(stderr, __VA_ARGS__)
 #endif
-#define ERROR(...) { printf("\n%s:", g_prog); printf(__VA_ARGS__); exit(1); }
 
 /// TODO: && elimintaion
 #define IS_LETTER(C) ((C >= 'a' && C <= 'z') || (C >= 'A' && C <= 'Z'))
@@ -70,6 +68,8 @@
 #define IS_PUNCT(P, A, B) (*P == A && P[1] == B)
 #define IS_TYPE(KIND) (KIND >= INT && KIND <= VOID)
 #define ALIGN(x) ((x + 3) & -4)
+
+#define COMPILE_ERROR(...) { printf(__VA_ARGS__); exit(1); }
 
 // Token Kind
 enum { _TK_OFFSET = 128,
@@ -83,7 +83,7 @@ enum { _TK_OFFSET = 128,
        INT, CHAR, VOID,
        KW_BREAK, KW_CONTINUE, KW_DO, KW_ELSE, KW_ENUM,
        KW_FOR, KW_IF, KW_RETURN, KW_SIZEOF, KW_WHILE,
-       C_PRINTF, C_EXIT,
+       C_PRINTF, C_FOPEN, C_FGETC, C_MALLOC, C_MEMSET, C_EXIT,
        TK_COUNT };
 // Identifier Kind
 enum { UNDEFINED, GLOBAL, PARAM, LOCAL, FUNC, ENUM };
@@ -91,11 +91,9 @@ enum { UNDEFINED, GLOBAL, PARAM, LOCAL, FUNC, ENUM };
 enum { OP_ADD = 128, OP_SUB, OP_MUL, OP_DIV, OP_REM,
        OP_MOV, OP_PUSH, OP_POP, OP_LOAD, OP_SAVE,
        OP_NE, OP_EQ, OP_GT, OP_GE, OP_LT, OP_LE,
-       OP_NOT,
-       OP_RET,
-       OP_JZ, OP_JUMP,
-       OP_CALL,
-       OP_PRINTF };
+       OP_NOT, OP_RET,
+       OP_JZ, OP_JUMP, OP_CALL,
+       OP_PRINTF, OP_FOPEN, OP_FGETC, OP_MALLOC, OP_MEMSET, OP_EXIT };
 enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME };
 
 struct Token {
@@ -107,11 +105,11 @@ struct Token {
 };
 
 struct Symbol {
-    // int datatype;
-    int storage;
     int tkIdx;
     int scope;
-    int address; // offset to ebp
+    int datatype;
+    int storage;
+    int address;
 };
 
 struct Ins {
@@ -119,7 +117,7 @@ struct Ins {
     int imme;
 };
 
-char *g_prog, *g_src;
+char *g_src;
 
 // tokens
 struct Token* g_tks;
@@ -132,6 +130,7 @@ int g_entry;
 int g_pc; // program counter
 
 char* ram;
+int memory;
 int g_dataSize;
 
 #define MAX_SCOPE 128
@@ -182,7 +181,7 @@ void lex() {
             for (++p; IS_LETTER(*p) || IS_DIGIT(*p) || *p == '_'; ++p);
             char *kw = "int char void "
                        "break continue do else enum for if return sizeof while "
-                       "printf exit ";
+                       "printf fopen fgetc malloc memset exit ";
             char *p0 = kw, *p1 = kw;
             for (int kind = INT; (p1 = strchr(p0, ' ')); p0 = p1 + 1, ++kind) {
                 if (strncmp(p0, g_tks[g_tkCnt].start, p1 - p0) == 0) {
@@ -302,7 +301,7 @@ void exit_scope() {
 
 int expect(int kind) {
     if (g_tks[g_tkIter].kind != kind) {
-        ERROR("%d: expected token '%c'(%d), got '%.*s'\n",
+        COMPILE_ERROR("error:%d: expected token '%c'(%d), got '%.*s'\n",
             g_tks[g_tkIter].ln,
             kind < 128 ? kind : ' ',
             kind,
@@ -313,12 +312,15 @@ int expect(int kind) {
 }
 
 int expect_type() {
-    int type = g_tks[g_tkIter].kind;
-    if (IS_TYPE(type)) {
+    int base_type = g_tks[g_tkIter].kind;
+    if (IS_TYPE(base_type)) {
         ++g_tkIter;
-        return type;
+        int ptr = 0;
+        for (; g_tks[g_tkIter].kind == '*'; ++g_tkIter)
+            ptr = (ptr << 8) | 0xFF;
+        return (ptr << 16) | base_type;
     } else {
-        ERROR("%d: expected type specifier, got '%.*s'\n",
+        COMPILE_ERROR("error:%d: expected type specifier, got '%.*s'\n",
             g_tks[g_tkIter].ln,
             g_tks[g_tkIter].end - g_tks[g_tkIter].start,
             g_tks[g_tkIter].start);
@@ -361,7 +363,7 @@ int post_expr() {
     }
     
     if (kind == LIT_STR) {
-        if (g_dataSize > RAM_SIZE / 2)
+        if (g_dataSize > (memory >> 1))
             panic("data is running low");
 
         instruction(OP(OP_MOV, EAX, 0, IMME), (int)(ram + g_dataSize));
@@ -380,9 +382,9 @@ int post_expr() {
     }
 
     if (kind == '(') {
-        int data_type = expr();
+        int datatype = expr();
         expect(')');
-        return data_type;
+        return datatype;
     }
     
     if (kind == TK_ID) {
@@ -403,16 +405,16 @@ int post_expr() {
                 instruction(OP(OP_ADD, ESP, ESP, IMME), argc << 2);
             }
             expect(')');
-            return 0;
+            return INT;
         }
 
-        int address = 0;
-        int type = UNDEFINED;
+        int address = 0, type = UNDEFINED, datatype = 0;
         for (int i = g_symCnt - 1; i >= 0; --i) {
             int tmp = syms[i].tkIdx;
             if (strncmp(g_tks[tmp].start, start, len) == 0) {
                 address = syms[i].address;
                 type = syms[i].storage;
+                datatype = syms[i].datatype;
                 break;
             }
         }
@@ -422,12 +424,12 @@ int post_expr() {
         }
 
         if (type == UNDEFINED) {
-            ERROR("%d: '%.*s' undeclared\n", ln, len, start);
+            COMPILE_ERROR("error:%d: '%.*s' undeclared\n", ln, len, start);
         }
 
         instruction(OP(OP_SUB, EDX, EBP, IMME), address);
         instruction(OP(OP_LOAD, EAX, EDX, 0), 4);
-        return 0;
+        return datatype;
     }
 
     if (kind == C_PRINTF) {
@@ -446,17 +448,51 @@ int post_expr() {
         return INT;
     }
 
-    ERROR("%d: expected expression, got '%.*s'\n", ln, len, start);
+    if (kind == C_FOPEN) {
+        expect('(');
+        assign_expr();
+        instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+        expect(',');
+        assign_expr();
+        instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+        instruction(OP_FOPEN, 0);
+        instruction(OP(OP_ADD, ESP, ESP, IMME), 8);
+        expect(')');
+        return 0xFF0000 & VOID; // void*
+    }
+
+    if (kind == C_FGETC) {
+        expect('(');
+        assign_expr();
+        instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+        instruction(OP_FGETC, 0);
+        instruction(OP(OP_ADD, ESP, ESP, IMME), 4);
+        expect(')');
+        return INT;
+    }
+
+    if (kind == C_MALLOC) {
+        expect('(');
+        assign_expr();
+        instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+        instruction(OP_MALLOC, 0);
+        instruction(OP(OP_ADD, ESP, ESP, IMME), 4);
+        expect(')');
+        return 0xFF0000 & VOID; // void*
+    }
+
+    COMPILE_ERROR("error:%d: expected expression, got '%.*s'\n", ln, len, start);
     return INT;
 }
 
 int unary_expr() {
     int kind = g_tks[g_tkIter].kind;
+    int ln = g_tks[g_tkIter].ln;
     if (kind == '!') {
         ++g_tkIter;
-        int rhs = unary_expr();
+        int datatype = unary_expr();
         instruction(OP(OP_NOT, EAX, 0, 0), 0);
-        return rhs;
+        return datatype;
     }
     if (kind == '+') {
         ++g_tkIter;
@@ -464,22 +500,31 @@ int unary_expr() {
     }
     if (kind == '-') {
         ++g_tkIter;
-        int rhs = unary_expr();
+        int datatype = unary_expr();
         instruction(OP(OP_MOV, EBX, 0, IMME), 0);
         instruction(OP(OP_SUB, EAX, EBX, EAX), 0);
-        return rhs;
+        return datatype;
+    }
+    if (kind == '*') {
+        ++g_tkIter;
+        int datatype = unary_expr();
+        if (!(datatype & 0xFF0000)) {
+            COMPILE_ERROR("error:%d: attempted to dereference a non-pointer type 0x%X\n", ln, datatype);
+        }
+
+        /// TODO: byte or word
+        instruction(OP(OP_MOV, EDX, 0, EAX), 0);
+        instruction(OP(OP_LOAD, EAX, EDX, 0), 4);
+        return ((datatype & 0xFF000000) ? (0xFFFFFF) : (0xFFFF)) & datatype;
     }
     if (kind == '&') {
         panic("implement &a");
-    }
-    if (kind == '*') {
-        panic("implement *a");
     }
     return post_expr();
 }
 
 int mul_expr() {
-    unary_expr();
+    int datatype = unary_expr();
     for (;;) {
         int optk = g_tks[g_tkIter].kind; int opcode;
         if (optk == '*') opcode = OP_MUL;
@@ -493,12 +538,11 @@ int mul_expr() {
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
 
-    return 0;
+    return datatype;
 }
 
 int add_expr() {
-    /// TODO: data types
-    mul_expr();
+    int datatype = mul_expr();
     for (;;) {
         int optk = g_tks[g_tkIter].kind; int opcode;
         if (optk == '+') opcode = OP_ADD;
@@ -508,14 +552,17 @@ int add_expr() {
         instruction(OP(OP_PUSH, 0, 0, EAX), 0);
         mul_expr();
         instruction(OP2(OP_POP, EBX), 0);
+        if (datatype & 0xFF0000) {
+            instruction(OP(OP_MUL, EAX, EAX, IMME), 4);
+        }
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
 
-    return 0;
+    return datatype;
 }
 
 int relation_expr() {
-    add_expr();
+    int datatype = add_expr();
     for (;;) {
         int kind = g_tks[g_tkIter].kind; int opcode;
         if (kind == TK_NE) opcode = OP_NE;
@@ -532,11 +579,11 @@ int relation_expr() {
         instruction(OP2(OP_POP, EBX), 0);
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
-    return INT;
+    return datatype;
 }
 
 int assign_expr() {
-    relation_expr();
+    int datatype = relation_expr();
 
     for (;;) {
         int kind = g_tks[g_tkIter].kind;
@@ -592,7 +639,7 @@ int assign_expr() {
         break;
     }
 
-    return INT;
+    return datatype;
 }
 
 int expr() {
@@ -689,8 +736,12 @@ void stmt() {
                         expect(',');
                     }
 
+                    int ptr = 0;
+                    for (; g_tks[g_tkIter].kind == '*'; ++g_tkIter)
+                        ptr = (ptr << 8) | 0xFF;
+
                     int id = expect(TK_ID);
-                    char* start = g_tks[id].start;
+                    // char* start = g_tks[id].start;
                     int prev = g_symCnt - 1;
                     syms[g_symCnt].address = 4;
 
@@ -701,6 +752,7 @@ void stmt() {
                     syms[g_symCnt].storage = LOCAL;
                     syms[g_symCnt].tkIdx = id;
                     syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
+                    syms[g_symCnt].datatype = (ptr << 16) | base_type;
                     ++g_symCnt;
 
                     instruction(OP(OP_SUB, ESP, ESP, IMME), 4);
@@ -737,7 +789,7 @@ void stmt() {
 
 // an object could be a global variable, an enum or a function
 void obj() {
-    expect_type();
+    int datatype = expect_type();
     int id = expect(TK_ID);
 
     if (g_tks[g_tkIter].kind == '(') {
@@ -746,6 +798,7 @@ void obj() {
         } else {
             syms[g_symCnt].storage = FUNC;
             syms[g_symCnt].tkIdx = id;
+            syms[g_symCnt].datatype = datatype;
             syms[g_symCnt++].address = g_insCnt;
         }
 
@@ -757,13 +810,14 @@ void obj() {
                 expect(',');
             }
 
-            int type = expect_type();
+            int datatype = expect_type();
             int ptr = 0;
             for (; g_tks[g_tkIter].kind == '*'; ++g_tkIter) { ptr = (ptr << 8) | 0xFF; }
-            type = (ptr << 16) | type;
+            datatype = (ptr << 16) | datatype;
 
             syms[g_symCnt].tkIdx = expect(TK_ID);
             syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
+            syms[g_symCnt].datatype = datatype;
             syms[g_symCnt++].storage = PARAM;
             ++argCnt;
         }
@@ -783,7 +837,7 @@ void obj() {
     panic("TODO: implement global variable/enum");
 }
 
-void gen(int argc, char** argv) {
+void gen() {
     enter_scope();
 
     while (g_tkIter < g_tkCnt) {
@@ -799,6 +853,7 @@ void gen(int argc, char** argv) {
         int idx = g_calls[i].tkIdx;
         char* start = g_tks[idx].start;
         char* end = g_tks[idx].end;
+        int ln = g_tks[idx].ln;
         int len = end - start;
 
         int found = 0;
@@ -814,26 +869,18 @@ void gen(int argc, char** argv) {
         }
 
         if (!found) {
-            ERROR("unknown reference to call %.*s\n", len, start);
+            COMPILE_ERROR("error:%d: unknown reference to call %.*s\n", ln, len, start);
         }
 
     }
 
     exit_scope();
-
-    // start
-    int entry = g_insCnt;
-    instruction(OP(OP_PUSH, 0, 0, IMME), argc);
-    instruction(OP(OP_PUSH, 0, 0, IMME), (int)argv);
-    instruction(OP2(OP_CALL, 0), g_entry);
-
-    g_entry = entry;
 }
 
 void printvm() {
     DEVPRINT("********** VM begin **********\n");
     DEVPRINT("data  [0x%p - 0x%p]\n", ram, ram + g_dataSize);
-    DEVPRINT("stack [0x%p - 0x%p]\n", ram + g_dataSize, ram + RAM_SIZE);
+    DEVPRINT("stack [0x%p - 0x%p]\n", ram + g_dataSize, ram + memory);
     DEVPRINT("eax: %d\n", g_regs[EAX]);
     DEVPRINT("ebx: %d\n", g_regs[EBX]);
     DEVPRINT("ecx: %d\n", g_regs[ECX]);
@@ -932,7 +979,14 @@ void exec() {
                    ((int*)ram)[slot + 3],
                    ((int*)ram)[slot + 2],
                    ((int*)ram)[slot + 1],
-                   ((int*)ram)[slot + 0]);
+                   ((int*)ram)[slot]);
+        } else if (op == OP_FGETC) {
+            int slot = g_regs[ESP] >> 2;
+            g_regs[EAX] = fgetc(((int*)ram)[slot]);
+        } else if (op == OP_FOPEN) {
+            int slot = g_regs[ESP] >> 2;
+            g_regs[EAX] = fopen((char*)((int*)ram)[slot + 1],
+                                (char*)((int*)ram)[slot]);
         } else {
             panic("Invalid op code");
         }
@@ -957,7 +1011,7 @@ void dump_tokens() {
                       "ADDEQ SUBEQ INC   DEC   AND   OR    LSHIFTRSHIFT"
                       "Int   Char  Void  "
                       "Break Cont  Do    Else  Enum  For   If    Ret   SizeofWhile "
-                      "PrintfExit  ";
+                      "Print Open  MallocMemsetExit  ";
 
         printf("%.*s", len, start);
         if (kind > _TK_OFFSET) {
@@ -974,17 +1028,41 @@ void dump_tokens() {
     printf("\n");
 }
 
-int main(int argc, char **argv) {
-    g_prog = argv[0];
+void entry(int argc, char** argv) {
+    int argptr = g_dataSize;
+    char** argStart = ram + g_dataSize;
+    char* stringStart = argStart + argc;
+    for (int i = 0; i < argc; ++i) {
+        argStart[i] = stringStart;
+        for (char* p = argv[i]; *p; ++p) {
+            *stringStart++ = *p;
+            ++g_dataSize;
+        }
+        *stringStart++ = 0;
+        ++g_dataSize;
+    }
 
+    g_dataSize = ALIGN(g_dataSize);
+
+    // start
+    int entry = g_insCnt;
+    instruction(OP(OP_PUSH, 0, 0, IMME), argc);
+    instruction(OP(OP_PUSH, 0, 0, IMME), argptr);
+    instruction(OP2(OP_CALL, 0), g_entry);
+
+    g_entry = entry;
+}
+
+int main(int argc, char **argv) {
     if (argc < 2) {
-        printf("Usage: %s file [args...]\n", g_prog);
-        exit(1);
+        printf("Usage: %s file [args...]\n", *argv);
+        return 1;
     }
 
     // initialization
-    ram = calloc(1, RAM_SIZE);
-    g_regs[ESP] = RAM_SIZE;
+    memory = 1024 * 1024 * argc;
+    ram = malloc(memory);
+    g_regs[ESP] = memory;
 
     // store source to buffer
     void* fp = fopen(argv[1], "r");
@@ -993,17 +1071,17 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    fseek(fp, 0, 2); // SEEK_END
-    int len = ftell(fp);
-    fseek(fp, 0, 0); // SEEK_SET
-    g_src = calloc(1, len + 1); // pad
-    fread(g_src, 1, len, fp);
-    fclose(fp);
+    int len = 1 << 18;
+    g_src = ram + (memory - len); // pad
+
+    int i = 0;
+    for (int c; (c = fgetc(fp)) != -1; ++i) { g_src[i] = c; }
+    g_src[i] = 0;
 
     g_tks = calloc(len, sizeof(struct Token));
     syms = calloc(len, sizeof(struct Symbol));
 
-    int i = len * (1 + sizeof(struct Token) + sizeof(struct Symbol));
+    i = len * (1 + sizeof(struct Token) + sizeof(struct Symbol));
     DEVPRINT("allocate %d kb\n", i / 1024);
 
     lex();
@@ -1012,7 +1090,8 @@ int main(int argc, char **argv) {
     dump_tokens();
 #endif
 
-    gen(argc - 1, argv + 1);
+    gen();
+    entry(argc - 1, argv + 1);
     DEVPRINT("-------- code --------\n");
     dump_code();
 
@@ -1023,7 +1102,6 @@ int main(int argc, char **argv) {
 
     free(ram);
     free(g_tks);
-    free(g_src);
 
     DEVPRINT("-------- exiting --------\n");
     DEVPRINT("script '%s' exit with code %d\n", argv[1], g_regs[EAX]);
