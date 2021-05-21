@@ -1,7 +1,7 @@
 ## C
-This project is a tiny C interpreter.
+This is a tiny C interpreter. (Aiming for self hosting)
 
-#### Fetures
+#### Todos
 - [x] decimal, hex, char and string literal
 - [x] arith `+, -, *, /, %`
 - [x] relational `>, <, >=, <=, !=, ==`,
@@ -13,6 +13,6 @@ This project is a tiny C interpreter.
 - [x] address `*, []`
 
 - [x] branch `if, else, ?:`
-- [x] iteration `do, while`
+- [ ] iteration `do, while, for`
 
 - [ ] `enum`

@@ -1,4 +1,4 @@
 cmake_minimum_required(VERSION 3.0)
-project(cc C)
+project(c C)
 set(CMAKE_C_STANDARD 11)
-add_executable(cc cc.c)
+add_executable(c c.c)

@@ -62,32 +62,35 @@
 #define IS_HEX(C) (IS_DIGIT(C) || (C >= 'A' && C <= 'F'))
 #define IS_WHITESPACE(C) (C == ' ' || C == '\n' || C == '\r' || C == '\t')
 #define IS_PUNCT(P, A, B) (*P == A && P[1] == B)
-#define IS_TYPE(KIND) (KIND >= INT && KIND <= VOID)
+#define IS_TYPE(KIND) (KIND >= Int && KIND <= Void)
 #define ALIGN(x) ((x + 3) & -4)
 #define COMPILE_ERROR(...) { printf(__VA_ARGS__); exit(1); }
-#define PUSH(REG, VAL) instruction(OP_PUSH | (REG << 24), VAL)
-#define POP(REG) instruction(OP_POP | (REG << 8), 0)
-#define MOV(DEST, SRC, IMME) instruction(OP_MOV | (DEST << 8) | (SRC << 24), IMME);
+#define PUSH(REG, VAL) instruction(Push | (REG << 24), VAL)
+#define POP(REG) instruction(Pop | (REG << 8), 0)
+#define MOV(DEST, SRC, IMME) instruction(Mov | (DEST << 8) | (SRC << 24), IMME)
+#define ADD(DEST, SRC1, SRC2, VAL) instruction(Add | (DEST << 8) | (SRC1 << 16) | (SRC2 << 24), (VAL))
+#define SUB(DEST, SRC1, SRC2, VAL) instruction(Sub | (DEST << 8) | (SRC1 << 16) | (SRC2 << 24), (VAL))
+#define MUL(DEST, SRC1, SRC2, VAL) instruction(Mul | (DEST << 8) | (SRC1 << 16) | (SRC2 << 24), (VAL))
+#define CALL(ENTRY) instruction(Call, ENTRY);
+#define LOADB(DEST, SRC) instruction(Load | (DEST << 8) | (SRC << 16), 1)
+#define LOADW(DEST, SRC) instruction(Load | (DEST << 8) | (SRC << 16), 4)
+#define CHAR_PTR (0xFF0000 | Char)
+#define VOID_PTR (0xFF0000 | Void)
 
-// Token Kind
 enum { _TK_OFFSET = 128,
-       LIT_INT, TK_ID, LIT_STR, LIT_CHAR,
-       TK_NE, TK_EQ, TK_GE, TK_LE,
-       TK_ADDEQ, TK_SUBEQ, TK_INC, TK_DEC,
-       TK_AND, TK_OR, TK_LSHIFT, TK_RSHIFT,
-       INT, CHAR, VOID,
-       KW_DO, KW_ELSE, KW_ENUM, KW_FOR, KW_IF, KW_RETURN, KW_SIZEOF, KW_WHILE,
-       C_PRINTF, C_FOPEN, C_FGETC, C_MALLOC, C_MEMSET, C_EXIT,
-       TK_COUNT };
-// Identifier Kind
-enum { UNDEFINED, GLOBAL, PARAM, LOCAL, FUNC, ENUM };
-// Opcode
-enum { OP_ADD = 128, OP_SUB, OP_MUL, OP_DIV, OP_REM,
-       OP_MOV, OP_PUSH, OP_POP, OP_LOAD, OP_SAVE,
-       OP_NE, OP_EQ, OP_GT, OP_GE, OP_LT, OP_LE,
-       OP_NOT, OP_RET,
-       OP_JZ, OP_JNZ, OP_JUMP, OP_CALL,
-       OP_PRINTF, OP_FOPEN, OP_FGETC, OP_MALLOC, OP_MEMSET, OP_EXIT };
+       CInt, Id, CStr, CChar,
+       TkNeq, TkEq, TkGe, TkLe,
+       TkAddTo, TkSubFrom, TkInc, TkDec, TkAnd, TkOr, TkLshift, TkRshift,
+       Int, Char, Void,
+       Do, Else, Enum, For, If, Return, Sizeof, While,
+       Printf, Fopen, Fgetc, Malloc, Memset, Exit,
+       TkCnt };
+enum { // Printf, Fopen, Fgetc, Malloc, Memset, Exit,
+       Add = TkCnt, Sub, Mul, Div, Rem,
+       Mov, Push, Pop, Load, Save,
+       Neq, Eq, Gt, Ge, Lt, Le,
+       Not, Ret, Jz, Jnz, Jump, Call };
+enum { Undefined, Global, Param, Local, Func, Const };
 enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME };
 
 struct Token {
@@ -148,9 +151,9 @@ void lex() {
     char *p = g_src, *kw = "int char void do else enum for if return sizeof while printf fopen fgetc malloc memset exit ";
     while (*p) {
         if (*p == '#' || (*p == '/' && *(p + 1) == '/')) {
-            while (*p && *p != '\n') ++p;
+            while (*p && *p != 10) ++p;
         } else if (IS_WHITESPACE(*p)) {
-            ln += (*p == '\n');
+            ln += (*p == 10);
             p = p + 1;
         } else {
             g_tks[g_tkCnt].ln = ln;
@@ -158,10 +161,10 @@ void lex() {
 
             // id or keyword
             if (IS_LETTER(*p) || *p == '_') {
-                g_tks[g_tkCnt].kind = TK_ID;
+                g_tks[g_tkCnt].kind = Id;
                 for (++p; IS_LETTER(*p) || IS_DIGIT(*p) || *p == '_'; ++p);
                 char *p0 = kw, *p1 = kw;
-                for (int kind = INT; (p1 = strchr(p0, ' ')); p0 = p1 + 1, ++kind) {
+                for (int kind = Int; (p1 = strchr(p0, ' ')); p0 = p1 + 1, ++kind) {
                     if (strncmp(p0, g_tks[g_tkCnt].start, p1 - p0) == 0) {
                         g_tks[g_tkCnt].kind = kind;
                         break;
@@ -169,7 +172,7 @@ void lex() {
                 }
                 g_tks[g_tkCnt++].end = p;
             } else if (*p == '0' && p[1] == 'x') {
-                g_tks[g_tkCnt].kind = LIT_INT;
+                g_tks[g_tkCnt].kind = CInt;
                 int result = 0;
                 for (p += 2; IS_HEX(*p); ++p) {
                     result = (result << 4) + ((*p < 'A') ? (*p - '0') : (*p - 55));
@@ -177,36 +180,35 @@ void lex() {
                 g_tks[g_tkCnt].value = result;
                 g_tks[g_tkCnt++].end = p;
             } else if (IS_DIGIT(*p)) {
-                g_tks[g_tkCnt].kind = LIT_INT;
+                g_tks[g_tkCnt].kind = CInt;
                 int result = 0;
                 for (; IS_DIGIT(*p); ++p) { result = result * 10 + (*p - '0'); }
                 g_tks[g_tkCnt].value = result;
                 g_tks[g_tkCnt++].end = p;
             } else if (*p == '"') {
-                g_tks[g_tkCnt].kind = LIT_STR;
+                g_tks[g_tkCnt].kind = CStr;
                 for (++p; *p != '"'; ++p);
                 g_tks[g_tkCnt++].end = ++p;
-            } else if (*p == '\'') {
+            } else if (*p == 39) { // ascii '''
                 /// TODO: escape
-                g_tks[g_tkCnt].kind = LIT_CHAR;
+                g_tks[g_tkCnt].kind = CChar;
                 g_tks[g_tkCnt].value = p[1];
                 g_tks[g_tkCnt++].end = (p += 3);
             } else {
                 g_tks[g_tkCnt].kind = *p;
 
-                if (IS_PUNCT(p, '=', '=')) { g_tks[g_tkCnt].kind = TK_EQ; ++p; }
-                else if (IS_PUNCT(p, '!', '=')) { g_tks[g_tkCnt].kind = TK_NE; ++p; }
-                else if (IS_PUNCT(p, '>', '=')) { g_tks[g_tkCnt].kind = TK_GE; ++p; }
-                else if (IS_PUNCT(p, '<', '=')) { g_tks[g_tkCnt].kind = TK_LE; ++p; }
-                else if (IS_PUNCT(p, '&', '&')) { g_tks[g_tkCnt].kind = TK_AND; ++p; }
-                else if (IS_PUNCT(p, '|', '|')) { g_tks[g_tkCnt].kind = TK_OR; ++p; }
-
-                if (*p == '+') {
-                    if (p[1] == '+') { g_tks[g_tkCnt].kind = TK_INC; ++p; }
-                    else if (p[1] == '=') { g_tks[g_tkCnt].kind = TK_ADDEQ; ++p; }
+                if (IS_PUNCT(p, '=', '=')) { g_tks[g_tkCnt].kind = TkEq; ++p; }
+                else if (IS_PUNCT(p, '!', '=')) { g_tks[g_tkCnt].kind = TkNeq; ++p; }
+                else if (IS_PUNCT(p, '>', '=')) { g_tks[g_tkCnt].kind = TkGe; ++p; }
+                else if (IS_PUNCT(p, '<', '=')) { g_tks[g_tkCnt].kind = TkLe; ++p; }
+                else if (IS_PUNCT(p, '&', '&')) { g_tks[g_tkCnt].kind = TkAnd; ++p; }
+                else if (IS_PUNCT(p, '|', '|')) { g_tks[g_tkCnt].kind = TkOr; ++p; }
+                else if (*p == '+') {
+                    if (p[1] == '+') { g_tks[g_tkCnt].kind = TkInc; ++p; }
+                    else if (p[1] == '=') { g_tks[g_tkCnt].kind = TkAddTo; ++p; }
                 } else if (*p == '-') {
-                    if (p[1] == '-') { g_tks[g_tkCnt].kind = TK_DEC; ++p; }
-                    else if (p[1] == '=') { g_tks[g_tkCnt].kind = TK_SUBEQ; ++p; }
+                    if (p[1] == '-') { g_tks[g_tkCnt].kind = TkDec; ++p; }
+                    else if (p[1] == '=') { g_tks[g_tkCnt].kind = TkSubFrom; ++p; }
                 }
 
                 g_tks[g_tkCnt++].end = ++p;
@@ -215,40 +217,45 @@ void lex() {
     }
 }
 
+void dump_tokens() {
+    int indent = 0;
+    for (int i = 0, ln = 0; i < g_tkCnt; ++i) {
+        int tkln = g_tks[i].ln;
+        int kind = g_tks[i].kind;
+        char* start = g_tks[i].start;
+        char* end = g_tks[i].end;
+        int len = end - start;
+        if (kind == '{') { indent += 1; }
+        else if (kind == '}') { indent -= 1; }
+        if (ln != tkln) {
+            printf("\n%-3d:%.*s", tkln, indent * 4, "                                        ");
+            ln = tkln;
+        }
+        char* names = "Int   Char  Void  Do    Else  Enum  For   If    Ret   SizeofWhile "
+                      "Print Open  MallocMemsetExit  ";
+
+        printf("%.*s", len, start);
+        if (kind >= Int) {
+            char *p = names + 6 * (kind - Int);
+            printf("{");
+            for (int i = 0; i < 6; ++i, ++p) {
+                if (*p == ' ') break;
+                printf("%c", *p);
+            }
+            printf("}");
+        }
+        printf(" ");
+    }
+    printf("\n");
+}
+
+
 void enter_scope() {
     if (scopeCnt >= MAX_SCOPE) {
         panic("scope overflow");
     }
 
     g_scopes[scopeCnt++] = ++g_scopeId;
-}
-
-// debug
-void debugprintsymbols() {
-    DEVPRINT("********** symbol begin *************\n");
-    for (int i = 0; i < g_symCnt; ++i) {
-        int idx = syms[i].tkIdx;
-        char* start = g_tks[idx].start;
-        char* end = g_tks[idx].end;
-        int len = end - start;
-
-        DEVPRINT("[scope %d] %.*s", syms[i].scope, len, start);
-        if (syms[i].storage == FUNC) {
-            DEVPRINT("(");
-            for (int j = i + 1; syms[j].storage == PARAM; ++j) {
-                int idx = syms[j].tkIdx;
-                char* start = g_tks[idx].start;
-                char* end = g_tks[idx].end;
-                int len = end - start;
-                DEVPRINT("%.*s,", len, start);
-            }
-            DEVPRINT(") {}");
-        } else if (syms[i].storage == LOCAL) {
-            // DEVPRINT("%d, scope %d\n", len, start, syms[i].address, syms[i].scope);
-        }
-        DEVPRINT("\n");
-    }
-    DEVPRINT("********** symbol end *************\n");
 }
 
 void exit_scope() {
@@ -320,25 +327,25 @@ int primary_expr() {
     int kind = g_tks[tkIdx].kind;
     int len = end - start;
     int value = g_tks[tkIdx].value;
-    if (kind == LIT_INT || kind == LIT_CHAR) {
+    if (kind == CInt || kind == CChar) {
         MOV(EAX, IMME, value);
-        return INT;
+        return Int;
     }
     
-    if (kind == LIT_STR) {
+    if (kind == CStr) {
         MOV(EAX, IMME, g_bss);
         for (int i = 1; i < len - 1; ++i) {
             int c = start[i];
-            if (c == '\\') {
+            if (c == 92) { // '\'
                 c = start[++i];
-                if (c == 'n') c = '\n';
+                if (c == 'n') c = 10;
                 else panic("handle escape sequence");
             }
             *((char*)g_bss++) = c;
         }
         *((char*)g_bss++) = 0;
         g_bss = ALIGN(g_bss);
-        return 0xFF0000 | CHAR; // char*
+        return CHAR_PTR;
     }
 
     if (kind == '(') {
@@ -347,7 +354,7 @@ int primary_expr() {
         return data_type;
     }
     
-    if (kind == TK_ID) {
+    if (kind == Id) {
         if (g_tks[g_tkIter].kind == '(') {
             ++g_tkIter;
             int argc;
@@ -360,15 +367,13 @@ int primary_expr() {
             g_calls[g_callNum].insIdx = g_insCnt;
             g_calls[g_callNum++].tkIdx = tkIdx;
 
-            instruction(OP2(OP_CALL, 0), 0);
-            if (argc) {
-                instruction(OP(OP_ADD, ESP, ESP, IMME), argc << 2);
-            }
+            CALL(0);
+            if (argc) { ADD(ESP, ESP, IMME, argc << 2); }
             expect(')');
-            return INT;
+            return Int;
         }
 
-        int address = 0, type = UNDEFINED, data_type = 0;
+        int address = 0, type = Undefined, data_type = 0;
         for (int i = g_symCnt - 1; i >= 0; --i) {
             int tmp = syms[i].tkIdx;
             int tmplen = g_tks[tmp].end - g_tks[tmp].start;
@@ -380,20 +385,20 @@ int primary_expr() {
             }
         }
 
-        if (type == GLOBAL) {
+        if (type == Global) {
             panic("TODO: implement globlal variable");
         }
 
-        if (type == UNDEFINED) {
+        if (type == Undefined) {
             COMPILE_ERROR("error:%d: '%.*s' undeclared\n", ln, len, start);
         }
 
-        instruction(OP(OP_SUB, EDX, EBP, IMME), address);
-        instruction(OP(OP_LOAD, EAX, EDX, 0), 4);
+        SUB(EDX, EBP, IMME, address);
+        LOADW(EAX, EDX);
         return data_type;
     }
 
-    if (kind == C_PRINTF) {
+    if (kind == Printf) {
         expect('(');
         int argc = 0;
         for (; g_tks[g_tkIter].kind != ')'; ++argc) {
@@ -402,48 +407,48 @@ int primary_expr() {
             PUSH(EAX, 0);
         }
         if (argc > MAX_PRINF_ARGS) panic("printf supports at most %d args");
-        instruction(OP(OP_SUB, ESP, ESP, IMME), (MAX_PRINF_ARGS - argc) << 2);
-        instruction(OP_PRINTF, argc);
-        instruction(OP(OP_ADD, ESP, ESP, IMME), MAX_PRINF_ARGS << 2);
+        SUB(ESP, ESP, IMME, (MAX_PRINF_ARGS - argc) << 2);
+        instruction(Printf, argc);
+        ADD(ESP, ESP, IMME, MAX_PRINF_ARGS << 2);
         expect(')');
-        return INT;
+        return Int;
     }
 
-    if (kind == C_FOPEN) {
+    if (kind == Fopen) {
         expect('(');
         assign_expr();
         PUSH(EAX, 0);
         expect(',');
         assign_expr();
         PUSH(EAX, 0);
-        instruction(OP_FOPEN, 0);
-        instruction(OP(OP_ADD, ESP, ESP, IMME), 8);
+        instruction(Fopen, 0);
+        ADD(ESP, ESP, IMME, 8);
         expect(')');
-        return 0xFF0000 & VOID; // void*
+        return VOID_PTR;
     }
 
-    if (kind == C_FGETC) {
+    if (kind == Fgetc) {
         expect('(');
         assign_expr();
         PUSH(EAX, 0);
-        instruction(OP_FGETC, 0);
-        instruction(OP(OP_ADD, ESP, ESP, IMME), 4);
+        instruction(Fgetc, 0);
+        ADD(ESP, ESP, IMME, 4);
         expect(')');
-        return INT;
+        return Int;
     }
 
-    if (kind == C_MALLOC) {
+    if (kind == Malloc) {
         expect('(');
         assign_expr();
         PUSH(EAX, 0);
-        instruction(OP_MALLOC, 0);
-        instruction(OP(OP_ADD, ESP, ESP, IMME), 4);
+        instruction(Malloc, 0);
+        ADD(ESP, ESP, IMME, 4);
         expect(')');
-        return 0xFF0000 & VOID; // void*
+        return VOID_PTR;
     }
 
     COMPILE_ERROR("error:%d: expected expression, got '%.*s'\n", ln, len, start);
-    return INT;
+    return Int;
 }
 
 int post_expr() {
@@ -458,13 +463,14 @@ int post_expr() {
             }
             PUSH(EAX, 0);
             assign_expr();
-            int is_charptr = data_type == (0xFF0000 | CHAR);
+            int is_charptr = data_type == CHAR_PTR;
             if (!is_charptr) {
-                instruction(OP(OP_MUL, EAX, EAX, IMME), 4);
+                MUL(EAX, EAX, IMME, 4);
             }
             POP(EBX);
-            instruction(OP(OP_ADD, EAX, EBX, EAX), 0);
-            instruction(OP(OP_LOAD, EAX, EAX, 0), is_charptr ? 1 : 4);
+            ADD(EAX, EBX, EAX, 0);
+            if (is_charptr) LOADB(EAX, EAX);
+            else LOADW(EAX, EAX);
             expect(']');
             data_type = ((data_type >> 8) & 0xFF0000) | ((data_type & 0xFFFF));
         } else {
@@ -480,7 +486,7 @@ int unary_expr() {
     if (kind == '!') {
         ++g_tkIter;
         int data_type = unary_expr();
-        instruction(OP(OP_NOT, EAX, 0, 0), 0);
+        instruction(OP(Not, EAX, 0, 0), 0);
         return data_type;
     }
     if (kind == '+') {
@@ -491,7 +497,7 @@ int unary_expr() {
         ++g_tkIter;
         int data_type = unary_expr();
         MOV(EBX, IMME, 0);
-        instruction(OP(OP_SUB, EAX, EBX, EAX), 0);
+        SUB(EAX, EBX, EAX, 0);
         return data_type;
     }
     if (kind == '*') {
@@ -502,7 +508,8 @@ int unary_expr() {
         }
 
         MOV(EDX, EAX, 0);
-        instruction(OP(OP_LOAD, EAX, EDX, 0), (data_type == (0xFF0000 | CHAR)) ? 1 : 4);
+        if (data_type == CHAR_PTR) LOADB(EAX, EDX);
+        else LOADW(EAX, EDX);
         return ((data_type >> 8) & 0xFF0000) | (0xFFFF & data_type);
     }
     if (kind == '&') {
@@ -515,9 +522,9 @@ int mul_expr() {
     int data_type = unary_expr();
     for (;;) {
         int optk = g_tks[g_tkIter].kind; int opcode;
-        if (optk == '*') opcode = OP_MUL;
-        else if (optk == '/') opcode = OP_DIV;
-        else if (optk == '%') opcode = OP_REM;
+        if (optk == '*') opcode = Mul;
+        else if (optk == '/') opcode = Div;
+        else if (optk == '%') opcode = Rem;
         else break;
         ++g_tkIter;
         PUSH(EAX, 0);
@@ -533,15 +540,15 @@ int add_expr() {
     int data_type = mul_expr();
     for (;;) {
         int optk = g_tks[g_tkIter].kind; int opcode;
-        if (optk == '+') opcode = OP_ADD;
-        else if (optk == '-') opcode = OP_SUB;
+        if (optk == '+') opcode = Add;
+        else if (optk == '-') opcode = Sub;
         else break;
         ++g_tkIter;
         PUSH(EAX, 0);
         mul_expr();
         POP(EBX);
-        if (data_type & 0xFF0000) {
-            instruction(OP(OP_MUL, EAX, EAX, IMME), 4);
+        if ((data_type & 0xFF0000) && data_type != CHAR_PTR) {
+            MUL(EAX, EAX, IMME, 4);
         }
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
@@ -553,13 +560,13 @@ int relation_expr() {
     int data_type = add_expr();
     for (;;) {
         int kind = g_tks[g_tkIter].kind; int opcode;
-        if (kind == TK_NE) opcode = OP_NE;
-        else if (kind == TK_EQ) opcode = OP_EQ;
-        else if (kind == '<') opcode = OP_LT;
-        else if (kind == '>') opcode = OP_GT;
-        else if (kind == TK_GE) opcode = OP_GE;
-        else if (kind == '<') opcode = OP_LT;
-        else if (kind == TK_LE) opcode = OP_LE;
+        if (kind == TkNeq) opcode = Neq;
+        else if (kind == TkEq) opcode = Eq;
+        else if (kind == '<') opcode = Lt;
+        else if (kind == '>') opcode = Gt;
+        else if (kind == TkGe) opcode = Ge;
+        else if (kind == '<') opcode = Lt;
+        else if (kind == TkLe) opcode = Le;
         else break;
         ++g_tkIter;
         PUSH(EAX, 0);
@@ -574,19 +581,19 @@ int logical_expr() {
     int data_type = relation_expr();
     for (;;) {
         int kind = g_tks[g_tkIter].kind;
-        if (kind == TK_AND) {
+        if (kind == TkAnd) {
             ++g_tkIter;
             int skip = g_insCnt;
-            instruction(OP_JZ, 0);
+            instruction(Jz, 0);
             relation_expr();
             g_instructs[skip].imme = g_insCnt;
             continue;
         }
 
-        if (kind == TK_OR) {
+        if (kind == TkOr) {
             ++g_tkIter;
             int skip = g_insCnt;
-            instruction(OP_JNZ, 0);
+            instruction(Jnz, 0);
             relation_expr();
             g_instructs[skip].imme = g_insCnt;
             continue;
@@ -607,40 +614,40 @@ int assign_expr() {
             PUSH(EDX, 0);
             logical_expr();
             POP(EDX);
-            instruction(OP(OP_SAVE, EDX, EAX, 0), data_type == CHAR ? 1 : 4);
+            instruction(OP(Save, EDX, EAX, 0), data_type == Char ? 1 : 4);
             continue;
         }
 
-        if (kind == TK_ADDEQ) {
+        if (kind == TkAddTo) {
             ++g_tkIter;
             PUSH(EDX, 0);
             int rhs = relation_expr(); // rhs
             POP(EDX);
-            instruction(OP(OP_LOAD, EBX, EDX, 0), 4);
-            instruction(OP(OP_ADD, EAX, EBX, EAX), 0);
-            instruction(OP(OP_SAVE, EDX, EAX, 0), 4);
+            LOADW(EBX, EDX);
+            ADD(EAX, EBX, EAX, 0);
+            instruction(OP(Save, EDX, EAX, 0), 4);
             continue;
         }
 
-        if (kind == TK_SUBEQ) {
+        if (kind == TkSubFrom) {
             ++g_tkIter;
             PUSH(EDX, 0);
             int rhs = relation_expr();
             POP(EDX);
-            instruction(OP(OP_LOAD, EBX, EDX, 0), 4);
-            instruction(OP(OP_SUB, EAX, EBX, EAX), 0);
-            instruction(OP(OP_SAVE, EDX, EAX, 0), 4);
+            LOADW(EBX, EDX);
+            SUB(EAX, EBX, EAX, 0);
+            instruction(OP(Save, EDX, EAX, 0), 4);
             continue;
         }
 
         if (kind == '?') {
             ++g_tkIter;
             int goto_L1 = g_insCnt;
-            instruction(OP_JZ, 0);
+            instruction(Jz, 0);
             int lhs = expr();
             expect(':');
             int goto_L2 = g_insCnt;
-            instruction(OP_JUMP, g_insCnt + 1);
+            instruction(Jump, g_insCnt + 1);
             g_instructs[goto_L1].imme = g_insCnt;
             int rhs = assign_expr();
             g_instructs[goto_L2].imme = g_insCnt;
@@ -664,16 +671,16 @@ int expr() {
 
 void stmt() {
     int kind = g_tks[g_tkIter].kind;
-    if (kind == KW_RETURN) {
+    if (kind == Return) {
         if (g_tks[++g_tkIter].kind != ';') assign_expr();
         MOV(ESP, EBP, 0);
         POP(EBP);
-        instruction(OP_RET, 0);
+        instruction(Ret, 0);
         expect(';');
         return;
     }
 
-    if (kind == KW_IF) {
+    if (kind == If) {
         //     eax == 0; goto L1 |     eax == 0; goto L1
         //     ...               |     ...
         //     goto L2           | L1: ...
@@ -682,24 +689,24 @@ void stmt() {
         ++g_tkIter;
         expect('('); expr(); expect(')');
         int goto_L1 = g_insCnt;
-        instruction(OP_JZ, 0);
+        instruction(Jz, 0);
         stmt();
 
-        if (g_tks[g_tkIter].kind != KW_ELSE) {
+        if (g_tks[g_tkIter].kind != Else) {
             g_instructs[goto_L1].imme = g_insCnt;
             return;
         }
 
         ++g_tkIter; // skip else
         int goto_L2 = g_insCnt;
-        instruction(OP_JUMP, g_insCnt + 1);
+        instruction(Jump, g_insCnt + 1);
         g_instructs[goto_L1].imme = g_insCnt;
         stmt();
         g_instructs[goto_L2].imme = g_insCnt;
         return;
     }
 
-    if (kind == KW_WHILE) {
+    if (kind == While) {
         // TEST: ...
         //       eax == 0; goto END
         //       ...
@@ -709,14 +716,14 @@ void stmt() {
         ++g_tkIter;
         expect('('); expr(); expect(')');
         int goto_end = g_insCnt;
-        instruction(OP_JZ, 0);
+        instruction(Jz, 0);
         stmt();
-        instruction(OP_JUMP, test_label);
+        instruction(Jump, test_label);
         g_instructs[goto_end].imme = g_insCnt;
         return;
     }
 
-    if (kind == KW_DO) {
+    if (kind == Do) {
         // START: ...
         //        eax == 0; goto END
         //        jump START;
@@ -724,11 +731,11 @@ void stmt() {
         int start_label = g_insCnt;
         ++g_tkIter;
         stmt();
-        expect(KW_WHILE);
+        expect(While);
         expect('('); expr(); expect(')');
         int goto_end = g_insCnt;
-        instruction(OP_JZ, 0);
-        instruction(OP_JUMP, start_label);
+        instruction(Jz, 0);
+        instruction(Jump, start_label);
         g_instructs[goto_end].imme = g_insCnt;
         return;
     }
@@ -751,26 +758,26 @@ void stmt() {
                     for (; g_tks[g_tkIter].kind == '*'; ++g_tkIter)
                         ptr = (ptr << 8) | 0xFF;
 
-                    int id = expect(TK_ID);
+                    int id = expect(Id);
                     // char* start = g_tks[id].start;
                     int prev = g_symCnt - 1;
                     syms[g_symCnt].address = 4;
 
-                    if (prev >= 0 && syms[prev].storage == LOCAL) {
+                    if (prev >= 0 && syms[prev].storage == Local) {
                         syms[g_symCnt].address += syms[prev].address;
                     }
 
-                    syms[g_symCnt].storage = LOCAL;
+                    syms[g_symCnt].storage = Local;
                     syms[g_symCnt].tkIdx = id;
                     syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
                     syms[g_symCnt].data_type = (ptr << 16) | base_type;
                     ++g_symCnt;
 
-                    instruction(OP(OP_SUB, ESP, ESP, IMME), 4);
+                    SUB(ESP, ESP, IMME, 4);
                     if (g_tks[g_tkIter].kind == '=') {
                         ++g_tkIter;
                         assign_expr();
-                        instruction(OP(OP_SAVE, ESP, EAX, 0), 4);
+                        instruction(OP(Save, ESP, EAX, 0), 4);
                     }
 
                     ++restore, ++varNum;
@@ -783,7 +790,7 @@ void stmt() {
         }
         ++g_tkIter;
 
-        if (restore) instruction(OP(OP_ADD, ESP, ESP, IMME), restore << 2);
+        if (restore) { ADD(ESP, ESP, IMME, restore << 2); }
         exit_scope();
         return;
     }
@@ -801,13 +808,13 @@ void stmt() {
 // an object could be a global variable, an enum or a function
 void obj() {
     int data_type = expect_type();
-    int id = expect(TK_ID);
+    int id = expect(Id);
 
     if (g_tks[g_tkIter].kind == '(') {
         if (strncmp("main", g_tks[id].start, 4) == 0) {
             g_entry = g_insCnt;
         } else {
-            syms[g_symCnt].storage = FUNC;
+            syms[g_symCnt].storage = Func;
             syms[g_symCnt].tkIdx = id;
             syms[g_symCnt].data_type = data_type;
             syms[g_symCnt++].address = g_insCnt;
@@ -826,10 +833,10 @@ void obj() {
             for (; g_tks[g_tkIter].kind == '*'; ++g_tkIter) { ptr = (ptr << 8) | 0xFF; }
             data_type = (ptr << 16) | data_type;
 
-            syms[g_symCnt].tkIdx = expect(TK_ID);
+            syms[g_symCnt].tkIdx = expect(Id);
             syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
             syms[g_symCnt].data_type = data_type;
-            syms[g_symCnt++].storage = PARAM;
+            syms[g_symCnt++].storage = Param;
             ++argCnt;
         }
         expect(')');
@@ -869,7 +876,7 @@ void gen() {
 
         int found = 0;
         for (int j = 0; j < g_symCnt; ++j) {
-            if (syms[j].storage == FUNC) {
+            if (syms[j].storage == Func) {
                 int funcIdx = syms[j].tkIdx;
                 if (strncmp(start, g_tks[funcIdx].start, len) == 0) {
                     found = 1;
@@ -899,31 +906,31 @@ void exec() {
         int value = src2 == IMME ? imme : g_regs[src2];
         op = op & 0xFF;
 
-        if (op == OP_CALL) {
+        if (op == Call) {
             g_regs[ESP] -= 4;
             *((int*)g_regs[ESP]) = pc + 1;
             pc = imme;
             continue;
         }
 
-        if ((op == OP_JUMP)) {
+        if ((op == Jump)) {
             pc = imme;
             continue;
         }
 
-        if (op == OP_JZ) {
+        if (op == Jz) {
             if (g_regs[EAX] == 0) pc = imme;
             else pc = pc + 1;
             continue;
         }
 
-        if (op == OP_JNZ) {
+        if (op == Jnz) {
             if (g_regs[EAX]) pc = imme;
             else pc = pc + 1;
             continue;
         }
 
-        if (op == OP_RET) {
+        if (op == Ret) {
             pc = *((int*)g_regs[ESP]);
             g_regs[ESP] += 4;
             continue;
@@ -931,76 +938,42 @@ void exec() {
 
         pc = pc + 1;
 
-        if (op == OP_MOV) { g_regs[dest] = value; }
-        else if (op == OP_PUSH) { g_regs[ESP] -= 4; *((int*)g_regs[ESP]) = value; }
-        else if (op == OP_POP) { g_regs[dest] = *((int*)g_regs[ESP]); g_regs[ESP] += 4; }
-        else if (op == OP_ADD) { g_regs[dest] = g_regs[src1] + value; }
-        else if (op == OP_SUB) { g_regs[dest] = g_regs[src1] - value; }
-        else if (op == OP_MUL) { g_regs[dest] = g_regs[src1] * value; }
-        else if (op == OP_DIV) { g_regs[dest] = g_regs[src1] / value; }
-        else if (op == OP_REM) { g_regs[dest] = g_regs[src1] % value; }
-        else if (op == OP_EQ) { g_regs[dest] = g_regs[src1] == value; }
-        else if (op == OP_NE) { g_regs[dest] = g_regs[src1] != value; }
-        else if (op == OP_GE) { g_regs[dest] = g_regs[src1] >= value; }
-        else if (op == OP_GT) { g_regs[dest] = g_regs[src1] > value; }
-        else if (op == OP_LE) { g_regs[dest] = g_regs[src1] <= value; }
-        else if (op == OP_LT) { g_regs[dest] = g_regs[src1] < value; }
-        else if (op == OP_NOT) { g_regs[dest] = !g_regs[dest]; }
-        else if (op == OP_SAVE) {
+        if (op == Mov) { g_regs[dest] = value; }
+        else if (op == Push) { g_regs[ESP] -= 4; *((int*)g_regs[ESP]) = value; }
+        else if (op == Pop) { g_regs[dest] = *((int*)g_regs[ESP]); g_regs[ESP] += 4; }
+        else if (op == Add) { g_regs[dest] = g_regs[src1] + value; }
+        else if (op == Sub) { g_regs[dest] = g_regs[src1] - value; }
+        else if (op == Mul) { g_regs[dest] = g_regs[src1] * value; }
+        else if (op == Div) { g_regs[dest] = g_regs[src1] / value; }
+        else if (op == Rem) { g_regs[dest] = g_regs[src1] % value; }
+        else if (op == Eq) { g_regs[dest] = g_regs[src1] == value; }
+        else if (op == Neq) { g_regs[dest] = g_regs[src1] != value; }
+        else if (op == Ge) { g_regs[dest] = g_regs[src1] >= value; }
+        else if (op == Gt) { g_regs[dest] = g_regs[src1] > value; }
+        else if (op == Le) { g_regs[dest] = g_regs[src1] <= value; }
+        else if (op == Lt) { g_regs[dest] = g_regs[src1] < value; }
+        else if (op == Not) { g_regs[dest] = !g_regs[dest]; }
+        else if (op == Save) {
             if (imme == 4) *((int*)g_regs[dest]) = g_regs[src1];
             else *((char*)g_regs[dest]) = g_regs[src1];
         }
-        else if (op == OP_LOAD) {
+        else if (op == Load) {
             if (imme == 4) g_regs[dest] = *((int*)g_regs[src1]);
             else g_regs[dest] = *((char*)g_regs[src1]);
         }
-        else if (op == OP_PRINTF) {
+        else if (op == Printf) {
             int* p = g_regs[ESP];
             printf((char*)(p[7]), p[6], p[5], p[4], p[3], p[2], p[1], p[0]);
-        } else if (op == OP_FGETC) {
+        } else if (op == Fgetc) {
             int* p = g_regs[ESP];
             g_regs[EAX] = fgetc((void*)(p[0]));
-        } else if (op == OP_FOPEN) {
+        } else if (op == Fopen) {
             int* p = g_regs[ESP];
             g_regs[EAX] = fopen((char*)(p[1]), (char*)(p[0]));
-        } else if (op == OP_MALLOC) {
+        } else if (op == Malloc) {
             g_regs[EAX] = ram + CHUNK_SIZE;
         } else { panic("Invalid op code"); }
     }
-}
-
-void dump_tokens() {
-    int indent = 0;
-    for (int i = 0, ln = 0; i < g_tkCnt; ++i) {
-        int tkln = g_tks[i].ln;
-        int kind = g_tks[i].kind;
-        char* start = g_tks[i].start;
-        char* end = g_tks[i].end;
-        int len = end - start;
-        if (kind == '{') { indent += 1; }
-        else if (kind == '}') { indent -= 1; }
-        if (ln != tkln) {
-            printf("\n%-3d:%.*s", tkln, indent * 4, "                                        ");
-            ln = tkln;
-        }
-        char* names = "INT   ID    STR   CHAR  NE    EQ    LE    GE    "
-                      "ADDEQ SUBEQ INC   DEC   AND   OR    LSHIFTRSHIFT"
-                      "Int   Char  Void  Do    Else  Enum  For   If    Ret   SizeofWhile "
-                      "Print Open  MallocMemsetExit  ";
-
-        printf("%.*s", len, start);
-        if (kind > _TK_OFFSET) {
-            char *p = names + 6 * (kind - _TK_OFFSET - 1);
-            printf("{");
-            for (int i = 0; i < 6; ++i, ++p) {
-                if (*p == ' ') break;
-                printf("%c", *p);
-            }
-            printf("}");
-        }
-        printf(" ");
-    }
-    printf("\n");
 }
 
 void dump_code() {
@@ -1015,34 +988,34 @@ void dump_code() {
         op = op & 0xFF;
         char* width = imme == 4 ? "word" : "byte";
         printf("[ %4d ] ", pc);
-        if (op == OP_MOV) {
+        if (op == Mov) {
             if (src2 == IMME) printf("  mov %.*s, %d(0x%08X)\n", REG2STR(dest), imme, imme);
             else printf("  mov %.*s, %.*s\n", REG2STR(dest), REG2STR(src2));
-        } else if (op == OP_RET) {
+        } else if (op == Ret) {
             printf("  ret\n");
-        } else if (op == OP_ADD || op == OP_SUB || op == OP_MUL || op == OP_DIV || op == OP_REM) {
-            char* opstr = op == OP_ADD ? "add" : op == OP_SUB ? "sub" : op == OP_MUL ? "mul" : op == OP_DIV ? "div" : "rem";
+        } else if (op == Add || op == Sub || op == Mul || op == Div || op == Rem) {
+            char* opstr = op == Add ? "add" : op == Sub ? "sub" : op == Mul ? "mul" : op == Div ? "div" : "rem";
             if (src2 == IMME) printf("  %s %.*s, %.*s, %d\n", opstr, REG2STR(dest), REG2STR(src1), imme);
             else printf("  %s %.*s, %.*s, %.*s\n", opstr, REG2STR(dest), REG2STR(src1), REG2STR(src2));
-        } else if (op == OP_EQ || op == OP_NE || op == OP_GT || op == OP_GE || op == OP_LT || op == OP_LE) {
-            char* opstr = op == OP_EQ ? "==" : op == OP_NE ? "!=" : op == OP_GT ? ">" : op == OP_GE ? ">=" : op == OP_LT ? "<" : "<=";
+        } else if (op == Eq || op == Neq || op == Gt || op == Ge || op == Lt || op == Le) {
+            char* opstr = op == Eq ? "==" : op == Neq ? "!=" : op == Gt ? ">" : op == Ge ? ">=" : op == Lt ? "<" : "<=";
             printf("  %s %.*s, %.*s, %.*s\n", opstr, REG2STR(dest), REG2STR(src1), REG2STR(src2));
-        } else if (op == OP_NOT) {
+        } else if (op == Not) {
             printf("  not %.*s\n", REG2STR(dest));
-        } else if (op == OP_PUSH) {
+        } else if (op == Push) {
             if (src2 == IMME) printf("  push %d(0x%08X)\n", imme, imme);
             else printf("  push %.*s\n", REG2STR(src2));
-        } else if (op == OP_POP) {
+        } else if (op == Pop) {
             printf("  pop %.*s\n", REG2STR(dest));
-        } else if (op == OP_LOAD) {
+        } else if (op == Load) {
             printf("  load %.*s, %s[%.*s]\n", REG2STR(dest), width, REG2STR(src1));
-        } else if (op == OP_SAVE) {
+        } else if (op == Save) {
             printf("  save %s[%.*s], %.*s\n", width, REG2STR(dest), REG2STR(src1));
-        } else if (op == OP_JUMP || op == OP_JZ || op == OP_JNZ || op == OP_CALL) {
-            char* opstr = op == OP_JUMP ? "jmp" : op == OP_JZ ? "jz" : op == OP_JNZ ? "jnz" : "call";
+        } else if (op == Jump || op == Jz || op == Jnz || op == Call) {
+            char* opstr = op == Jump ? "jmp" : op == Jz ? "jz" : op == Jnz ? "jnz" : "call";
             printf("  %s %d\n", opstr, imme);
-        } else if (op == OP_PRINTF || op == OP_FOPEN || op == OP_FGETC || op == OP_MALLOC) {
-            char* opstr = op == OP_PRINTF ? "printf" : op == OP_FOPEN ? "fopen" : op == OP_FGETC ? "fgetc" : "malloc";
+        } else if (op == Printf || op == Fopen || op == Fgetc || op == Malloc) {
+            char* opstr = op == Printf ? "printf" : op == Fopen ? "fopen" : op == Fgetc ? "fgetc" : "malloc";
             printf("  %s\n", opstr);
         } else {
             panic("invalid op code");
@@ -1070,7 +1043,7 @@ void entry(int argc, char** argv) {
     int entry = g_insCnt;
     PUSH(IMME, argc);
     PUSH(IMME, argptr);
-    instruction(OP2(OP_CALL, 0), g_entry);
+    CALL(g_entry);
 
     g_entry = entry;
 }
@@ -1084,8 +1057,6 @@ int main(int argc, char **argv) {
     // initialization
     memory = 2 * CHUNK_SIZE * argc;
     ram = malloc(memory);
-    g_bss = ram;
-    g_regs[ESP] = ram + memory;
 
     // store source to buffer
     void* fp = fopen(argv[1], "r");
@@ -1108,9 +1079,12 @@ int main(int argc, char **argv) {
 
     lex();
 #if !defined(NOT_DEVELOPMENT) && !defined(TEST)
-    //DEVPRINT("-------- lex --------\n");
+    DEVPRINT("-------- lex --------\n");
     dump_tokens();
 #endif
+
+    g_bss = ram;
+    g_regs[ESP] = ram + memory;
 
     gen();
     entry(argc - 1, argv + 1);

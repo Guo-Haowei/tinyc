@@ -1,3 +1,4 @@
+// self.c
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -23,7 +24,17 @@ int main(int argc, char** argv) {
     }
     *pp = 0;
 
-    printf("%s\n", p);
+    while (*p) {
+        if (*p == '#' || (*p == '/' && p[1] == '/')) {
+            while (*p && *p != 10) p = p + 1;
+        } else if (*p == ' ' || *p == 10 || *p == 11 || *p == 13) {
+            if (*p == 10) printf("\n");
+            p = p + 1;
+        } else {
+            printf("%c", *p);
+            p += 1;
+        }
+    }
 
     return 0;
 }
