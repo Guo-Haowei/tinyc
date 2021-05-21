@@ -49,6 +49,7 @@
 // definitions
 #define MAX_INS (1 << 12)
 #define MAX_PRINF_ARGS 8
+#define CHUNK_SIZE (1 << 20)
 
 #if defined(TEST) || defined(NOT_DEVELOPMENT)
 #define DEVPRINT(...)
@@ -124,7 +125,7 @@ int g_pc; // program counter
 
 char* ram;
 int memory;
-int g_dataSize;
+int g_bss;
 
 #define MAX_SCOPE 128
 int g_scopeId;
@@ -325,10 +326,7 @@ int post_expr() {
     }
     
     if (kind == LIT_STR) {
-        if (g_dataSize > (memory >> 1))
-            panic("data is running low");
-
-        MOV(EAX, IMME, (int)(ram + g_dataSize));
+        MOV(EAX, IMME, g_bss);
         for (int i = 1; i < len - 1; ++i) {
             int c = start[i];
             if (c == '\\') {
@@ -336,10 +334,10 @@ int post_expr() {
                 if (c == 'n') c = '\n';
                 else panic("handle escape sequence");
             }
-            ram[g_dataSize++] = c;
+            *((char*)g_bss++) = c;
         }
-        ram[g_dataSize++] = 0;
-        g_dataSize = ALIGN(g_dataSize);
+        *((char*)g_bss++) = 0;
+        g_bss = ALIGN(g_bss);
         return 0xFF0000 | CHAR; // char*
     }
 
@@ -373,7 +371,8 @@ int post_expr() {
         int address = 0, type = UNDEFINED, datatype = 0;
         for (int i = g_symCnt - 1; i >= 0; --i) {
             int tmp = syms[i].tkIdx;
-            if (strncmp(g_tks[tmp].start, start, len) == 0) {
+            int tmplen = g_tks[tmp].end - g_tks[tmp].start;
+            if (len == tmplen && strncmp(g_tks[tmp].start, start, len) == 0) {
                 address = syms[i].address;
                 type = syms[i].storage;
                 datatype = syms[i].datatype;
@@ -474,9 +473,8 @@ int unary_expr() {
             COMPILE_ERROR("error:%d: attempted to dereference a non-pointer type 0x%X\n", ln, datatype);
         }
 
-        /// TODO: byte or word
         MOV(EDX, EAX, 0);
-        instruction(OP(OP_LOAD, EAX, EDX, 0), 4);
+        instruction(OP(OP_LOAD, EAX, EDX, 0), (datatype == (0xFF0000 | CHAR)) ? 1 : 4);
         return ((datatype & 0xFF000000) ? (0xFFFFFF) : (0xFFFF)) & datatype;
     }
     if (kind == '&') {
@@ -579,13 +577,9 @@ int assign_expr() {
         if (kind == '=') {
             ++g_tkIter;
             PUSH(EDX, 0);
-            int rhs = logical_expr();
+            logical_expr();
             POP(EDX);
-            if (rhs == CHAR) {
-                panic("TODO: implement load char");
-            } else {
-                instruction(OP(OP_SAVE, EDX, EAX, 0), 4);
-            }
+            instruction(OP(OP_SAVE, EDX, EAX, 0), datatype == CHAR ? 1 : 4);
             continue;
         }
 
@@ -879,7 +873,7 @@ void exec() {
 
         if (op == OP_CALL) {
             g_regs[ESP] -= 4;
-            ((int*)ram)[g_regs[ESP] >> 2] = pc + 1;
+            *((int*)g_regs[ESP]) = pc + 1;
             pc = imme;
             continue;
         }
@@ -902,7 +896,7 @@ void exec() {
         }
 
         if (op == OP_RET) {
-            pc = ((int*)ram)[g_regs[ESP] >> 2];
+            pc = *((int*)g_regs[ESP]);
             g_regs[ESP] += 4;
             continue;
         }
@@ -910,8 +904,8 @@ void exec() {
         pc = pc + 1;
 
         if (op == OP_MOV) { g_regs[dest] = value; }
-        else if (op == OP_PUSH) { g_regs[ESP] -= 4; ((int*)ram)[g_regs[ESP] >> 2] = value; }
-        else if (op == OP_POP) { g_regs[dest] = ((int*)ram)[g_regs[ESP] >> 2]; g_regs[ESP] += 4; }
+        else if (op == OP_PUSH) { g_regs[ESP] -= 4; *((int*)g_regs[ESP]) = value; }
+        else if (op == OP_POP) { g_regs[dest] = *((int*)g_regs[ESP]); g_regs[ESP] += 4; }
         else if (op == OP_ADD) { g_regs[dest] = g_regs[src1] + value; }
         else if (op == OP_SUB) { g_regs[dest] = g_regs[src1] - value; }
         else if (op == OP_MUL) { g_regs[dest] = g_regs[src1] * value; }
@@ -924,18 +918,25 @@ void exec() {
         else if (op == OP_LE) { g_regs[dest] = g_regs[src1] <= value; }
         else if (op == OP_LT) { g_regs[dest] = g_regs[src1] < value; }
         else if (op == OP_NOT) { g_regs[dest] = !g_regs[dest]; }
-        else if (op == OP_SAVE) { if (imme != 4) panic("TODO: implement save byte"); ((int*)ram)[g_regs[dest] >> 2] = g_regs[src1]; }
-        else if (op == OP_LOAD) { if (imme != 4) panic("TODO: implement load byte"); g_regs[dest] = ((int*)ram)[g_regs[src1] >> 2]; }
+        else if (op == OP_SAVE) {
+            if (imme == 4) *((int*)g_regs[dest]) = g_regs[src1];
+            else *((char*)g_regs[dest]) = g_regs[src1];
+        }
+        else if (op == OP_LOAD) {
+            if (imme == 4) g_regs[dest] = *((int*)g_regs[src1]);
+            else g_regs[dest] = *((char*)g_regs[src1]);
+        }
         else if (op == OP_PRINTF) {
-            int slot = g_regs[ESP] >> 2, *p = (int*)ram;
-            printf((char*)p[slot + 7], p[slot + 6], p[slot + 5], p[slot + 4],
-                          p[slot + 3], p[slot + 2], p[slot + 1], p[slot]);
+            int* p = g_regs[ESP];
+            printf((char*)(p[7]), p[6], p[5], p[4], p[3], p[2], p[1], p[0]);
         } else if (op == OP_FGETC) {
-            int slot = g_regs[ESP] >> 2;
-            g_regs[EAX] = fgetc(((int*)ram)[slot]);
+            int* p = g_regs[ESP];
+            g_regs[EAX] = fgetc((void*)(p[0]));
         } else if (op == OP_FOPEN) {
-            int slot = g_regs[ESP] >> 2, *p = (int*)ram;
-            g_regs[EAX] = fopen((char*)(p[slot + 1]), (char*)(p[slot]));
+            int* p = g_regs[ESP];
+            g_regs[EAX] = fopen((char*)(p[1]), (char*)(p[0]));
+        } else if (op == OP_MALLOC) {
+            g_regs[EAX] = ram + CHUNK_SIZE;
         } else { panic("Invalid op code"); }
     }
 }
@@ -1022,20 +1023,20 @@ void dump_code() {
 }
 
 void entry(int argc, char** argv) {
-    int argptr = g_dataSize;
-    char** argStart = ram + g_dataSize;
+    int argptr = g_bss;
+    char** argStart = g_bss;
     char* stringStart = argStart + argc;
     for (int i = 0; i < argc; ++i) {
         argStart[i] = stringStart;
         for (char* p = argv[i]; *p; ++p) {
             *stringStart++ = *p;
-            ++g_dataSize;
+            ++g_bss;
         }
         *stringStart++ = 0;
-        ++g_dataSize;
+        ++g_bss;
     }
 
-    g_dataSize = ALIGN(g_dataSize);
+    g_bss = ALIGN(g_bss);
 
     // start
     int entry = g_insCnt;
@@ -1053,9 +1054,10 @@ int main(int argc, char **argv) {
     }
 
     // initialization
-    memory = 1024 * 1024 * argc;
+    memory = 2 * CHUNK_SIZE * argc;
     ram = malloc(memory);
-    g_regs[ESP] = memory;
+    g_bss = ram;
+    g_regs[ESP] = ram + memory;
 
     // store source to buffer
     void* fp = fopen(argv[1], "r");
@@ -1075,11 +1077,10 @@ int main(int argc, char **argv) {
     syms = calloc(len, sizeof(struct Symbol));
 
     i = len * (1 + sizeof(struct Token) + sizeof(struct Symbol));
-    DEVPRINT("allocate %d kb\n", i / 1024);
 
     lex();
 #if !defined(NOT_DEVELOPMENT) && !defined(TEST)
-    DEVPRINT("-------- lex --------\n");
+    //DEVPRINT("-------- lex --------\n");
     dump_tokens();
 #endif
 

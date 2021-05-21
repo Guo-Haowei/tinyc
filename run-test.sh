@@ -22,8 +22,8 @@ testcase() {
     echo "Running test [$name]..."
 
     gcc -Wno-implicit-function-declaration $file || exit 1
-    ./cc $file > $name.actual
-    ./a > $name.expect
+    ./cc $file ../test/$name.c > $name.actual
+    ./a ../test/$name.c > $name.expect
 
     diff $name.expect $name.actual
     if [ $? != 0 ]

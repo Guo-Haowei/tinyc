@@ -34,6 +34,16 @@ int main() {
             printf("%d is divisible by 4, 5 or 7\n", num);
         }
     }
+    {
+        int i = 12;
+        i = (i < 12 ? i : (i += 24));
+        printf("i is now %d\n", i);
+    }
+    {
+        int i = 12;
+        i = (i == 12 ? i : (i += 24));
+        printf("i is now %d\n", i);
+    }
 
     return 0;
 }
