@@ -101,7 +101,7 @@ struct Token {
 struct Symbol {
     int tkIdx;
     int scope;
-    int datatype;
+    int data_type;
     int storage;
     int address;
 };
@@ -312,7 +312,7 @@ struct CallToResolve {
 struct CallToResolve g_calls[256];
 int g_callNum;
 
-int post_expr() {
+int primary_expr() {
     int tkIdx = g_tkIter++;
     char* start = g_tks[tkIdx].start;
     char* end = g_tks[tkIdx].end;
@@ -342,9 +342,9 @@ int post_expr() {
     }
 
     if (kind == '(') {
-        int datatype = expr();
+        int data_type = expr();
         expect(')');
-        return datatype;
+        return data_type;
     }
     
     if (kind == TK_ID) {
@@ -368,14 +368,14 @@ int post_expr() {
             return INT;
         }
 
-        int address = 0, type = UNDEFINED, datatype = 0;
+        int address = 0, type = UNDEFINED, data_type = 0;
         for (int i = g_symCnt - 1; i >= 0; --i) {
             int tmp = syms[i].tkIdx;
             int tmplen = g_tks[tmp].end - g_tks[tmp].start;
             if (len == tmplen && strncmp(g_tks[tmp].start, start, len) == 0) {
                 address = syms[i].address;
                 type = syms[i].storage;
-                datatype = syms[i].datatype;
+                data_type = syms[i].data_type;
                 break;
             }
         }
@@ -390,7 +390,7 @@ int post_expr() {
 
         instruction(OP(OP_SUB, EDX, EBP, IMME), address);
         instruction(OP(OP_LOAD, EAX, EDX, 0), 4);
-        return datatype;
+        return data_type;
     }
 
     if (kind == C_PRINTF) {
@@ -446,14 +446,42 @@ int post_expr() {
     return INT;
 }
 
+int post_expr() {
+    int data_type = primary_expr();
+    for (;;) {
+        int kind = g_tks[g_tkIter].kind;
+        int ln = g_tks[g_tkIter].ln;
+        if (kind == '[') {
+            ++g_tkIter;
+            if (!(data_type & 0xFF0000)) {
+                COMPILE_ERROR("error:%d: attempted to dereference a non-pointer type 0x%X\n", ln, data_type);
+            }
+            PUSH(EAX, 0);
+            assign_expr();
+            int is_charptr = data_type == (0xFF0000 | CHAR);
+            if (!is_charptr) {
+                instruction(OP(OP_MUL, EAX, EAX, IMME), 4);
+            }
+            POP(EBX);
+            instruction(OP(OP_ADD, EAX, EBX, EAX), 0);
+            instruction(OP(OP_LOAD, EAX, EAX, 0), is_charptr ? 1 : 4);
+            expect(']');
+            data_type = ((data_type >> 8) & 0xFF0000) | ((data_type & 0xFFFF));
+        } else {
+            break;
+        }
+    }
+    return data_type;
+}
+
 int unary_expr() {
     int kind = g_tks[g_tkIter].kind;
     int ln = g_tks[g_tkIter].ln;
     if (kind == '!') {
         ++g_tkIter;
-        int datatype = unary_expr();
+        int data_type = unary_expr();
         instruction(OP(OP_NOT, EAX, 0, 0), 0);
-        return datatype;
+        return data_type;
     }
     if (kind == '+') {
         ++g_tkIter;
@@ -461,21 +489,21 @@ int unary_expr() {
     }
     if (kind == '-') {
         ++g_tkIter;
-        int datatype = unary_expr();
+        int data_type = unary_expr();
         MOV(EBX, IMME, 0);
         instruction(OP(OP_SUB, EAX, EBX, EAX), 0);
-        return datatype;
+        return data_type;
     }
     if (kind == '*') {
         ++g_tkIter;
-        int datatype = unary_expr();
-        if (!(datatype & 0xFF0000)) {
-            COMPILE_ERROR("error:%d: attempted to dereference a non-pointer type 0x%X\n", ln, datatype);
+        int data_type = unary_expr();
+        if (!(data_type & 0xFF0000)) {
+            COMPILE_ERROR("error:%d: attempted to dereference a non-pointer type 0x%X\n", ln, data_type);
         }
 
         MOV(EDX, EAX, 0);
-        instruction(OP(OP_LOAD, EAX, EDX, 0), (datatype == (0xFF0000 | CHAR)) ? 1 : 4);
-        return ((datatype & 0xFF000000) ? (0xFFFFFF) : (0xFFFF)) & datatype;
+        instruction(OP(OP_LOAD, EAX, EDX, 0), (data_type == (0xFF0000 | CHAR)) ? 1 : 4);
+        return ((data_type >> 8) & 0xFF0000) | (0xFFFF & data_type);
     }
     if (kind == '&') {
         panic("implement &a");
@@ -484,7 +512,7 @@ int unary_expr() {
 }
 
 int mul_expr() {
-    int datatype = unary_expr();
+    int data_type = unary_expr();
     for (;;) {
         int optk = g_tks[g_tkIter].kind; int opcode;
         if (optk == '*') opcode = OP_MUL;
@@ -498,11 +526,11 @@ int mul_expr() {
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
 
-    return datatype;
+    return data_type;
 }
 
 int add_expr() {
-    int datatype = mul_expr();
+    int data_type = mul_expr();
     for (;;) {
         int optk = g_tks[g_tkIter].kind; int opcode;
         if (optk == '+') opcode = OP_ADD;
@@ -512,17 +540,17 @@ int add_expr() {
         PUSH(EAX, 0);
         mul_expr();
         POP(EBX);
-        if (datatype & 0xFF0000) {
+        if (data_type & 0xFF0000) {
             instruction(OP(OP_MUL, EAX, EAX, IMME), 4);
         }
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
 
-    return datatype;
+    return data_type;
 }
 
 int relation_expr() {
-    int datatype = add_expr();
+    int data_type = add_expr();
     for (;;) {
         int kind = g_tks[g_tkIter].kind; int opcode;
         if (kind == TK_NE) opcode = OP_NE;
@@ -539,11 +567,11 @@ int relation_expr() {
         POP(EBX);
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
-    return datatype;
+    return data_type;
 }
 
 int logical_expr() {
-    int datatype = relation_expr();
+    int data_type = relation_expr();
     for (;;) {
         int kind = g_tks[g_tkIter].kind;
         if (kind == TK_AND) {
@@ -567,11 +595,11 @@ int logical_expr() {
         break;
     }
 
-    return datatype;
+    return data_type;
 }
 
 int assign_expr() {
-    int datatype = logical_expr();
+    int data_type = logical_expr();
     for (;;) {
         int kind = g_tks[g_tkIter].kind;
         if (kind == '=') {
@@ -579,7 +607,7 @@ int assign_expr() {
             PUSH(EDX, 0);
             logical_expr();
             POP(EDX);
-            instruction(OP(OP_SAVE, EDX, EAX, 0), datatype == CHAR ? 1 : 4);
+            instruction(OP(OP_SAVE, EDX, EAX, 0), data_type == CHAR ? 1 : 4);
             continue;
         }
 
@@ -622,7 +650,7 @@ int assign_expr() {
         break;
     }
 
-    return datatype;
+    return data_type;
 }
 
 int expr() {
@@ -735,7 +763,7 @@ void stmt() {
                     syms[g_symCnt].storage = LOCAL;
                     syms[g_symCnt].tkIdx = id;
                     syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
-                    syms[g_symCnt].datatype = (ptr << 16) | base_type;
+                    syms[g_symCnt].data_type = (ptr << 16) | base_type;
                     ++g_symCnt;
 
                     instruction(OP(OP_SUB, ESP, ESP, IMME), 4);
@@ -772,7 +800,7 @@ void stmt() {
 
 // an object could be a global variable, an enum or a function
 void obj() {
-    int datatype = expect_type();
+    int data_type = expect_type();
     int id = expect(TK_ID);
 
     if (g_tks[g_tkIter].kind == '(') {
@@ -781,7 +809,7 @@ void obj() {
         } else {
             syms[g_symCnt].storage = FUNC;
             syms[g_symCnt].tkIdx = id;
-            syms[g_symCnt].datatype = datatype;
+            syms[g_symCnt].data_type = data_type;
             syms[g_symCnt++].address = g_insCnt;
         }
 
@@ -793,14 +821,14 @@ void obj() {
                 expect(',');
             }
 
-            int datatype = expect_type();
+            int data_type = expect_type();
             int ptr = 0;
             for (; g_tks[g_tkIter].kind == '*'; ++g_tkIter) { ptr = (ptr << 8) | 0xFF; }
-            datatype = (ptr << 16) | datatype;
+            data_type = (ptr << 16) | data_type;
 
             syms[g_symCnt].tkIdx = expect(TK_ID);
             syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
-            syms[g_symCnt].datatype = datatype;
+            syms[g_symCnt].data_type = data_type;
             syms[g_symCnt++].storage = PARAM;
             ++argCnt;
         }

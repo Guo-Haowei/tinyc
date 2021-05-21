@@ -10,8 +10,7 @@ This project is a tiny C interpreter.
 - [ ] increment `++, --`
 - [x] logical `&&, ||`
 - [ ] bitwise `&, |, >>, <<`
-- [ ] address `*, []`
-- [ ] dereference `&`
+- [x] address `*, []`
 
 - [x] branch `if, else, ?:`
 - [x] iteration `do, while`
