@@ -50,17 +50,12 @@
 #define MAX_INS (1 << 12)
 #define MAX_PRINF_ARGS 8
 
-//#define switch @
-//#define case @
-//#define default @
-
 #if defined(TEST) || defined(NOT_DEVELOPMENT)
 #define DEVPRINT(...)
 #else
 #define DEVPRINT(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
-/// TODO: && elimintaion
 #define IS_LETTER(C) ((C >= 'a' && C <= 'z') || (C >= 'A' && C <= 'Z'))
 #define IS_DIGIT(C) (C >= '0' && C <= '9')
 #define IS_HEX(C) (IS_DIGIT(C) || (C >= 'A' && C <= 'F'))
@@ -68,21 +63,19 @@
 #define IS_PUNCT(P, A, B) (*P == A && P[1] == B)
 #define IS_TYPE(KIND) (KIND >= INT && KIND <= VOID)
 #define ALIGN(x) ((x + 3) & -4)
-
 #define COMPILE_ERROR(...) { printf(__VA_ARGS__); exit(1); }
+#define PUSH(REG, VAL) instruction(OP_PUSH | (REG << 24), VAL)
+#define POP(REG) instruction(OP_POP | (REG << 8), 0)
+#define MOV(DEST, SRC, IMME) instruction(OP_MOV | (DEST << 8) | (SRC << 24), IMME);
 
 // Token Kind
 enum { _TK_OFFSET = 128,
        LIT_INT, TK_ID, LIT_STR, LIT_CHAR,
-       TK_NE, /* != */ TK_EQ, /* == */
-       TK_GE, /* >= */ TK_LE, /* <= */
-       TK_ADDEQ, /* += */ TK_SUBEQ, /* -= */
-       TK_INC, /* ++ */ TK_DEC, /* -- */
-       TK_AND,/* && */ TK_OR, /* || */
-       TK_LSHIFT, /* << */ TK_RSHIFT, /* >> */
+       TK_NE, TK_EQ, TK_GE, TK_LE,
+       TK_ADDEQ, TK_SUBEQ, TK_INC, TK_DEC,
+       TK_AND, TK_OR, TK_LSHIFT, TK_RSHIFT,
        INT, CHAR, VOID,
-       KW_BREAK, KW_CONTINUE, KW_DO, KW_ELSE, KW_ENUM,
-       KW_FOR, KW_IF, KW_RETURN, KW_SIZEOF, KW_WHILE,
+       KW_DO, KW_ELSE, KW_ENUM, KW_FOR, KW_IF, KW_RETURN, KW_SIZEOF, KW_WHILE,
        C_PRINTF, C_FOPEN, C_FGETC, C_MALLOC, C_MEMSET, C_EXIT,
        TK_COUNT };
 // Identifier Kind
@@ -149,107 +142,75 @@ void panic(char* fmt) {
     exit(1);
 }
 
-#ifndef NOT_DEVELOPMENT
-#include "debug.inl"
-#else
-#define op2str(...)
-#define reg2str(...)
-#define dump_code(...)
-#endif // #ifndef NOT_DEVELOPMENT
-
 void lex() {
     int ln = 1;
-    char *p = g_src;
+    char *p = g_src, *kw = "int char void do else enum for if return sizeof while printf fopen fgetc malloc memset exit ";
     while (*p) {
         if (*p == '#' || (*p == '/' && *(p + 1) == '/')) {
             while (*p && *p != '\n') ++p;
-            continue;
-        }
-
-        if (IS_WHITESPACE(*p)) {
+        } else if (IS_WHITESPACE(*p)) {
             ln += (*p == '\n');
             p = p + 1;
-            continue;
-        }
+        } else {
+            g_tks[g_tkCnt].ln = ln;
+            g_tks[g_tkCnt].start = p;
 
-        g_tks[g_tkCnt].ln = ln;
-        g_tks[g_tkCnt].start = p;
-
-        // id or keyword
-        if (IS_LETTER(*p) || *p == '_') {
-            g_tks[g_tkCnt].kind = TK_ID;
-            for (++p; IS_LETTER(*p) || IS_DIGIT(*p) || *p == '_'; ++p);
-            char *kw = "int char void "
-                       "break continue do else enum for if return sizeof while "
-                       "printf fopen fgetc malloc memset exit ";
-            char *p0 = kw, *p1 = kw;
-            for (int kind = INT; (p1 = strchr(p0, ' ')); p0 = p1 + 1, ++kind) {
-                if (strncmp(p0, g_tks[g_tkCnt].start, p1 - p0) == 0) {
-                    g_tks[g_tkCnt].kind = kind;
-                    break;
+            // id or keyword
+            if (IS_LETTER(*p) || *p == '_') {
+                g_tks[g_tkCnt].kind = TK_ID;
+                for (++p; IS_LETTER(*p) || IS_DIGIT(*p) || *p == '_'; ++p);
+                char *p0 = kw, *p1 = kw;
+                for (int kind = INT; (p1 = strchr(p0, ' ')); p0 = p1 + 1, ++kind) {
+                    if (strncmp(p0, g_tks[g_tkCnt].start, p1 - p0) == 0) {
+                        g_tks[g_tkCnt].kind = kind;
+                        break;
+                    }
                 }
+                g_tks[g_tkCnt++].end = p;
+            } else if (*p == '0' && p[1] == 'x') {
+                g_tks[g_tkCnt].kind = LIT_INT;
+                int result = 0;
+                for (p += 2; IS_HEX(*p); ++p) {
+                    result = (result << 4) + ((*p < 'A') ? (*p - '0') : (*p - 55));
+                }
+                g_tks[g_tkCnt].value = result;
+                g_tks[g_tkCnt++].end = p;
+            } else if (IS_DIGIT(*p)) {
+                g_tks[g_tkCnt].kind = LIT_INT;
+                int result = 0;
+                for (; IS_DIGIT(*p); ++p) { result = result * 10 + (*p - '0'); }
+                g_tks[g_tkCnt].value = result;
+                g_tks[g_tkCnt++].end = p;
+            } else if (*p == '"') {
+                g_tks[g_tkCnt].kind = LIT_STR;
+                for (++p; *p != '"'; ++p);
+                g_tks[g_tkCnt++].end = ++p;
+            } else if (*p == '\'') {
+                /// TODO: escape
+                g_tks[g_tkCnt].kind = LIT_CHAR;
+                g_tks[g_tkCnt].value = p[1];
+                g_tks[g_tkCnt++].end = (p += 3);
+            } else {
+                g_tks[g_tkCnt].kind = *p;
+
+                if (IS_PUNCT(p, '=', '=')) { g_tks[g_tkCnt].kind = TK_EQ; ++p; }
+                else if (IS_PUNCT(p, '!', '=')) { g_tks[g_tkCnt].kind = TK_NE; ++p; }
+                else if (IS_PUNCT(p, '>', '=')) { g_tks[g_tkCnt].kind = TK_GE; ++p; }
+                else if (IS_PUNCT(p, '<', '=')) { g_tks[g_tkCnt].kind = TK_LE; ++p; }
+                else if (IS_PUNCT(p, '&', '&')) { g_tks[g_tkCnt].kind = TK_AND; ++p; }
+                else if (IS_PUNCT(p, '|', '|')) { g_tks[g_tkCnt].kind = TK_OR; ++p; }
+
+                if (*p == '+') {
+                    if (p[1] == '+') { g_tks[g_tkCnt].kind = TK_INC; ++p; }
+                    else if (p[1] == '=') { g_tks[g_tkCnt].kind = TK_ADDEQ; ++p; }
+                } else if (*p == '-') {
+                    if (p[1] == '-') { g_tks[g_tkCnt].kind = TK_DEC; ++p; }
+                    else if (p[1] == '=') { g_tks[g_tkCnt].kind = TK_SUBEQ; ++p; }
+                }
+
+                g_tks[g_tkCnt++].end = ++p;
             }
-            g_tks[g_tkCnt++].end = p;
-            continue;
         }
-
-        if (*p == '0' && p[1] == 'x') {
-            g_tks[g_tkCnt].kind = LIT_INT;
-            int result = 0;
-            for (p += 2; IS_HEX(*p); ++p) {
-                result = (result << 4) + ((*p < 'A') ? (*p - '0') : (*p - 55));
-            }
-            g_tks[g_tkCnt].value = result;
-            g_tks[g_tkCnt++].end = p;
-            continue;
-        }
-
-        if (IS_DIGIT(*p)) {
-            g_tks[g_tkCnt].kind = LIT_INT;
-            int result = 0;
-            for (; IS_DIGIT(*p); ++p) {
-                result = result * 10 + (*p - '0');
-            }
-            g_tks[g_tkCnt].value = result;
-            g_tks[g_tkCnt++].end = p;
-            continue;
-        }
-
-        // string
-        if (*p == '"') {
-            g_tks[g_tkCnt].kind = LIT_STR;
-            for (++p; *p != '"'; ++p);
-            g_tks[g_tkCnt++].end = ++p;
-            continue;
-        }
-
-        // char
-        if (*p == '\'') {
-            /// TODO: escape
-            g_tks[g_tkCnt].kind = LIT_CHAR;
-            g_tks[g_tkCnt].value = p[1];
-            g_tks[g_tkCnt++].end = (p += 3);
-            continue;
-        }
-
-        g_tks[g_tkCnt].kind = *p;
-
-        if (IS_PUNCT(p, '=', '=')) { g_tks[g_tkCnt].kind = TK_EQ; ++p; }
-        else if (IS_PUNCT(p, '!', '=')) { g_tks[g_tkCnt].kind = TK_NE; ++p; }
-        else if (IS_PUNCT(p, '>', '=')) { g_tks[g_tkCnt].kind = TK_GE; ++p; }
-        else if (IS_PUNCT(p, '<', '=')) { g_tks[g_tkCnt].kind = TK_LE; ++p; }
-        else if (IS_PUNCT(p, '&', '&')) { g_tks[g_tkCnt].kind = TK_AND; ++p; }
-        else if (IS_PUNCT(p, '|', '|')) { g_tks[g_tkCnt].kind = TK_OR; ++p; }
-
-        if (*p == '+') {
-            if (p[1] == '+') { g_tks[g_tkCnt].kind = TK_INC; ++p; }
-            else if (p[1] == '=') { g_tks[g_tkCnt].kind = TK_ADDEQ; ++p; }
-        } else if (*p == '-') {
-            if (p[1] == '-') { g_tks[g_tkCnt].kind = TK_DEC; ++p; }
-            else if (p[1] == '=') { g_tks[g_tkCnt].kind = TK_SUBEQ; ++p; }
-        }
-
-        g_tks[g_tkCnt++].end = ++p;
     }
 }
 
@@ -340,7 +301,6 @@ void instruction(int op, int imme) {
 }
 
 #define OP2(op, dest) ((op) | (dest << 8))
-#define OP3(op, dest, src1) ((op) | (dest << 8) | (src1 << 16))
 #define OP(op, dest, src1, src2) ((op) | (dest << 8) | (src1 << 16) | (src2 << 24))
 
 struct CallToResolve {
@@ -360,7 +320,7 @@ int post_expr() {
     int len = end - start;
     int value = g_tks[tkIdx].value;
     if (kind == LIT_INT || kind == LIT_CHAR) {
-        instruction(OP(OP_MOV, EAX, 0, IMME), value);
+        MOV(EAX, IMME, value);
         return INT;
     }
     
@@ -368,7 +328,7 @@ int post_expr() {
         if (g_dataSize > (memory >> 1))
             panic("data is running low");
 
-        instruction(OP(OP_MOV, EAX, 0, IMME), (int)(ram + g_dataSize));
+        MOV(EAX, IMME, (int)(ram + g_dataSize));
         for (int i = 1; i < len - 1; ++i) {
             int c = start[i];
             if (c == '\\') {
@@ -396,7 +356,7 @@ int post_expr() {
             for (argc = 0; g_tks[g_tkIter].kind != ')'; ++argc) {
                 if (argc > 0) expect(',');
                 assign_expr();
-                instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+                PUSH(EAX, 0);
             }
 
             g_calls[g_callNum].insIdx = g_insCnt;
@@ -440,7 +400,7 @@ int post_expr() {
         for (; g_tks[g_tkIter].kind != ')'; ++argc) {
             if (argc > 0) expect(',');
             assign_expr();
-            instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+            PUSH(EAX, 0);
         }
         if (argc > MAX_PRINF_ARGS) panic("printf supports at most %d args");
         instruction(OP(OP_SUB, ESP, ESP, IMME), (MAX_PRINF_ARGS - argc) << 2);
@@ -453,10 +413,10 @@ int post_expr() {
     if (kind == C_FOPEN) {
         expect('(');
         assign_expr();
-        instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+        PUSH(EAX, 0);
         expect(',');
         assign_expr();
-        instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+        PUSH(EAX, 0);
         instruction(OP_FOPEN, 0);
         instruction(OP(OP_ADD, ESP, ESP, IMME), 8);
         expect(')');
@@ -466,7 +426,7 @@ int post_expr() {
     if (kind == C_FGETC) {
         expect('(');
         assign_expr();
-        instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+        PUSH(EAX, 0);
         instruction(OP_FGETC, 0);
         instruction(OP(OP_ADD, ESP, ESP, IMME), 4);
         expect(')');
@@ -476,7 +436,7 @@ int post_expr() {
     if (kind == C_MALLOC) {
         expect('(');
         assign_expr();
-        instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+        PUSH(EAX, 0);
         instruction(OP_MALLOC, 0);
         instruction(OP(OP_ADD, ESP, ESP, IMME), 4);
         expect(')');
@@ -503,7 +463,7 @@ int unary_expr() {
     if (kind == '-') {
         ++g_tkIter;
         int datatype = unary_expr();
-        instruction(OP(OP_MOV, EBX, 0, IMME), 0);
+        MOV(EBX, IMME, 0);
         instruction(OP(OP_SUB, EAX, EBX, EAX), 0);
         return datatype;
     }
@@ -515,7 +475,7 @@ int unary_expr() {
         }
 
         /// TODO: byte or word
-        instruction(OP(OP_MOV, EDX, 0, EAX), 0);
+        MOV(EDX, EAX, 0);
         instruction(OP(OP_LOAD, EAX, EDX, 0), 4);
         return ((datatype & 0xFF000000) ? (0xFFFFFF) : (0xFFFF)) & datatype;
     }
@@ -534,9 +494,9 @@ int mul_expr() {
         else if (optk == '%') opcode = OP_REM;
         else break;
         ++g_tkIter;
-        instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+        PUSH(EAX, 0);
         unary_expr();
-        instruction(OP2(OP_POP, EBX), 0);
+        POP(EBX);
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
 
@@ -551,9 +511,9 @@ int add_expr() {
         else if (optk == '-') opcode = OP_SUB;
         else break;
         ++g_tkIter;
-        instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+        PUSH(EAX, 0);
         mul_expr();
-        instruction(OP2(OP_POP, EBX), 0);
+        POP(EBX);
         if (datatype & 0xFF0000) {
             instruction(OP(OP_MUL, EAX, EAX, IMME), 4);
         }
@@ -576,9 +536,9 @@ int relation_expr() {
         else if (kind == TK_LE) opcode = OP_LE;
         else break;
         ++g_tkIter;
-        instruction(OP(OP_PUSH, 0, 0, EAX), 0);
+        PUSH(EAX, 0);
         add_expr();
-        instruction(OP2(OP_POP, EBX), 0);
+        POP(EBX);
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
     return datatype;
@@ -618,9 +578,9 @@ int assign_expr() {
         int kind = g_tks[g_tkIter].kind;
         if (kind == '=') {
             ++g_tkIter;
-            instruction(OP(OP_PUSH, 0, 0, EDX), 0);
+            PUSH(EDX, 0);
             int rhs = logical_expr();
-            instruction(OP2(OP_POP, EDX), 0);
+            POP(EDX);
             if (rhs == CHAR) {
                 panic("TODO: implement load char");
             } else {
@@ -631,9 +591,9 @@ int assign_expr() {
 
         if (kind == TK_ADDEQ) {
             ++g_tkIter;
-            instruction(OP(OP_PUSH, 0, 0, EDX), 0);
+            PUSH(EDX, 0);
             int rhs = relation_expr(); // rhs
-            instruction(OP2(OP_POP, EDX), 0);
+            POP(EDX);
             instruction(OP(OP_LOAD, EBX, EDX, 0), 4);
             instruction(OP(OP_ADD, EAX, EBX, EAX), 0);
             instruction(OP(OP_SAVE, EDX, EAX, 0), 4);
@@ -642,9 +602,9 @@ int assign_expr() {
 
         if (kind == TK_SUBEQ) {
             ++g_tkIter;
-            instruction(OP(OP_PUSH, 0, 0, EDX), 0);
+            PUSH(EDX, 0);
             int rhs = relation_expr();
-            instruction(OP2(OP_POP, EDX), 0);
+            POP(EDX);
             instruction(OP(OP_LOAD, EBX, EDX, 0), 4);
             instruction(OP(OP_SUB, EAX, EBX, EAX), 0);
             instruction(OP(OP_SAVE, EDX, EAX, 0), 4);
@@ -684,8 +644,8 @@ void stmt() {
     int kind = g_tks[g_tkIter].kind;
     if (kind == KW_RETURN) {
         if (g_tks[++g_tkIter].kind != ';') assign_expr();
-        instruction(OP(OP_MOV, ESP, 0, EBP), 0);
-        instruction(OP2(OP_POP, EBP), 0);
+        MOV(ESP, EBP, 0);
+        POP(EBP);
         instruction(OP_RET, 0);
         expect(';');
         return;
@@ -856,8 +816,8 @@ void obj() {
         }
 
         // save frame
-        instruction(OP(OP_PUSH, 0, 0, EBP), 0);
-        instruction(OP(OP_MOV, EBP, 0, ESP), 0);
+        PUSH(EBP, 0);
+        MOV(EBP, ESP, 0);
         stmt();
         exit_scope();
         return;
@@ -906,20 +866,6 @@ void gen() {
     exit_scope();
 }
 
-void printvm() {
-    DEVPRINT("********** VM begin **********\n");
-    DEVPRINT("data  [0x%p - 0x%p]\n", ram, ram + g_dataSize);
-    DEVPRINT("stack [0x%p - 0x%p]\n", ram + g_dataSize, ram + memory);
-    DEVPRINT("eax: %d\n", g_regs[EAX]);
-    DEVPRINT("ebx: %d\n", g_regs[EBX]);
-    DEVPRINT("ecx: %d\n", g_regs[ECX]);
-    DEVPRINT("edx: 0x%X\n", g_regs[EDX]);
-    DEVPRINT("esp: 0x%X\n", g_regs[ESP]);
-    DEVPRINT("ebp: 0x%X\n", g_regs[EBP]);
-    DEVPRINT("pc: %d\n", g_entry);
-    DEVPRINT("********** VM end **********\n");
-}
-
 void exec() {
     int pc = g_entry;
     while (pc < g_insCnt) {
@@ -963,68 +909,34 @@ void exec() {
 
         pc = pc + 1;
 
-        if (op == OP_MOV) {
-            g_regs[dest] = value;
-        } else if (op == OP_PUSH) {
-            g_regs[ESP] -= 4;
-            ((int*)ram)[g_regs[ESP] >> 2] = value;
-        } else if (op == OP_POP) {
-            g_regs[dest] = ((int*)ram)[g_regs[ESP] >> 2];
-            g_regs[ESP] += 4;
-        } else if (op == OP_ADD) {
-            g_regs[dest] = g_regs[src1] + value;
-        } else if (op == OP_SUB) {
-            g_regs[dest] = g_regs[src1] - value;
-        } else if (op == OP_MUL) {
-            g_regs[dest] = g_regs[src1] * value;
-        } else if (op == OP_DIV) {
-            g_regs[dest] = g_regs[src1] / value;
-        } else if (op == OP_REM) {
-            g_regs[dest] = g_regs[src1] % value;
-        } else if (op == OP_EQ) {
-            g_regs[dest] = g_regs[src1] == value;
-        } else if (op == OP_NE) {
-            g_regs[dest] = g_regs[src1] != value;
-        } else if (op == OP_GE) {
-            g_regs[dest] = g_regs[src1] >= value;
-        } else if (op == OP_GT) {
-            g_regs[dest] = g_regs[src1] > value;
-        } else if (op == OP_LE) {
-            g_regs[dest] = g_regs[src1] <= value;
-        } else if (op == OP_LT) {
-            g_regs[dest] = g_regs[src1] < value;
-        } else if (op == OP_NOT) {
-            g_regs[dest] = !g_regs[dest];
-        } else if (op == OP_SAVE) {
-            if (imme != 4) {
-                panic("TODO: implement save byte");
-            }
-            ((int*)ram)[g_regs[dest] >> 2] = g_regs[src1];
-        } else if (op == OP_LOAD) {
-            if (imme != 4) {
-                panic("TODO: implement load byte");
-            }
-            g_regs[dest] = ((int*)ram)[g_regs[src1] >> 2];
-        } else if (op == OP_PRINTF) {
-            int slot = g_regs[ESP] >> 2;
-            printf((char*)((int*)ram)[slot + 7],
-                   ((int*)ram)[slot + 6],
-                   ((int*)ram)[slot + 5],
-                   ((int*)ram)[slot + 4],
-                   ((int*)ram)[slot + 3],
-                   ((int*)ram)[slot + 2],
-                   ((int*)ram)[slot + 1],
-                   ((int*)ram)[slot]);
+        if (op == OP_MOV) { g_regs[dest] = value; }
+        else if (op == OP_PUSH) { g_regs[ESP] -= 4; ((int*)ram)[g_regs[ESP] >> 2] = value; }
+        else if (op == OP_POP) { g_regs[dest] = ((int*)ram)[g_regs[ESP] >> 2]; g_regs[ESP] += 4; }
+        else if (op == OP_ADD) { g_regs[dest] = g_regs[src1] + value; }
+        else if (op == OP_SUB) { g_regs[dest] = g_regs[src1] - value; }
+        else if (op == OP_MUL) { g_regs[dest] = g_regs[src1] * value; }
+        else if (op == OP_DIV) { g_regs[dest] = g_regs[src1] / value; }
+        else if (op == OP_REM) { g_regs[dest] = g_regs[src1] % value; }
+        else if (op == OP_EQ) { g_regs[dest] = g_regs[src1] == value; }
+        else if (op == OP_NE) { g_regs[dest] = g_regs[src1] != value; }
+        else if (op == OP_GE) { g_regs[dest] = g_regs[src1] >= value; }
+        else if (op == OP_GT) { g_regs[dest] = g_regs[src1] > value; }
+        else if (op == OP_LE) { g_regs[dest] = g_regs[src1] <= value; }
+        else if (op == OP_LT) { g_regs[dest] = g_regs[src1] < value; }
+        else if (op == OP_NOT) { g_regs[dest] = !g_regs[dest]; }
+        else if (op == OP_SAVE) { if (imme != 4) panic("TODO: implement save byte"); ((int*)ram)[g_regs[dest] >> 2] = g_regs[src1]; }
+        else if (op == OP_LOAD) { if (imme != 4) panic("TODO: implement load byte"); g_regs[dest] = ((int*)ram)[g_regs[src1] >> 2]; }
+        else if (op == OP_PRINTF) {
+            int slot = g_regs[ESP] >> 2, *p = (int*)ram;
+            printf((char*)p[slot + 7], p[slot + 6], p[slot + 5], p[slot + 4],
+                          p[slot + 3], p[slot + 2], p[slot + 1], p[slot]);
         } else if (op == OP_FGETC) {
             int slot = g_regs[ESP] >> 2;
             g_regs[EAX] = fgetc(((int*)ram)[slot]);
         } else if (op == OP_FOPEN) {
-            int slot = g_regs[ESP] >> 2;
-            g_regs[EAX] = fopen((char*)((int*)ram)[slot + 1],
-                                (char*)((int*)ram)[slot]);
-        } else {
-            panic("Invalid op code");
-        }
+            int slot = g_regs[ESP] >> 2, *p = (int*)ram;
+            g_regs[EAX] = fopen((char*)(p[slot + 1]), (char*)(p[slot]));
+        } else { panic("Invalid op code"); }
     }
 }
 
@@ -1044,8 +956,7 @@ void dump_tokens() {
         }
         char* names = "INT   ID    STR   CHAR  NE    EQ    LE    GE    "
                       "ADDEQ SUBEQ INC   DEC   AND   OR    LSHIFTRSHIFT"
-                      "Int   Char  Void  "
-                      "Break Cont  Do    Else  Enum  For   If    Ret   SizeofWhile "
+                      "Int   Char  Void  Do    Else  Enum  For   If    Ret   SizeofWhile "
                       "Print Open  MallocMemsetExit  ";
 
         printf("%.*s", len, start);
@@ -1061,6 +972,53 @@ void dump_tokens() {
         printf(" ");
     }
     printf("\n");
+}
+
+void dump_code() {
+    char* regs = "   eaxebxecxedxespebp";
+    #define REG2STR(REG) 3, regs + 3 * REG
+    for (int pc = 0; pc < g_insCnt; ++pc) {
+        int op = g_instructs[pc].op;
+        int imme = g_instructs[pc].imme;
+        int dest = (op & 0xFF00) >> 8;
+        int src1 = (op & 0xFF0000) >> 16;
+        int src2 = (op & 0xFF000000) >> 24;
+        op = op & 0xFF;
+        char* width = imme == 4 ? "word" : "byte";
+        printf("[ %4d ] ", pc);
+        if (op == OP_MOV) {
+            if (src2 == IMME) printf("  mov %.*s, %d(0x%08X)\n", REG2STR(dest), imme, imme);
+            else printf("  mov %.*s, %.*s\n", REG2STR(dest), REG2STR(src2));
+        } else if (op == OP_RET) {
+            printf("  ret\n");
+        } else if (op == OP_ADD || op == OP_SUB || op == OP_MUL || op == OP_DIV || op == OP_REM) {
+            char* opstr = op == OP_ADD ? "add" : op == OP_SUB ? "sub" : op == OP_MUL ? "mul" : op == OP_DIV ? "div" : "rem";
+            if (src2 == IMME) printf("  %s %.*s, %.*s, %d\n", opstr, REG2STR(dest), REG2STR(src1), imme);
+            else printf("  %s %.*s, %.*s, %.*s\n", opstr, REG2STR(dest), REG2STR(src1), REG2STR(src2));
+        } else if (op == OP_EQ || op == OP_NE || op == OP_GT || op == OP_GE || op == OP_LT || op == OP_LE) {
+            char* opstr = op == OP_EQ ? "==" : op == OP_NE ? "!=" : op == OP_GT ? ">" : op == OP_GE ? ">=" : op == OP_LT ? "<" : "<=";
+            printf("  %s %.*s, %.*s, %.*s\n", opstr, REG2STR(dest), REG2STR(src1), REG2STR(src2));
+        } else if (op == OP_NOT) {
+            printf("  not %.*s\n", REG2STR(dest));
+        } else if (op == OP_PUSH) {
+            if (src2 == IMME) printf("  push %d(0x%08X)\n", imme, imme);
+            else printf("  push %.*s\n", REG2STR(src2));
+        } else if (op == OP_POP) {
+            printf("  pop %.*s\n", REG2STR(dest));
+        } else if (op == OP_LOAD) {
+            printf("  load %.*s, %s[%.*s]\n", REG2STR(dest), width, REG2STR(src1));
+        } else if (op == OP_SAVE) {
+            printf("  save %s[%.*s], %.*s\n", width, REG2STR(dest), REG2STR(src1));
+        } else if (op == OP_JUMP || op == OP_JZ || op == OP_JNZ || op == OP_CALL) {
+            char* opstr = op == OP_JUMP ? "jmp" : op == OP_JZ ? "jz" : op == OP_JNZ ? "jnz" : "call";
+            printf("  %s %d\n", opstr, imme);
+        } else if (op == OP_PRINTF || op == OP_FOPEN || op == OP_FGETC || op == OP_MALLOC) {
+            char* opstr = op == OP_PRINTF ? "printf" : op == OP_FOPEN ? "fopen" : op == OP_FGETC ? "fgetc" : "malloc";
+            printf("  %s\n", opstr);
+        } else {
+            panic("invalid op code");
+        }
+    }
 }
 
 void entry(int argc, char** argv) {
@@ -1081,8 +1039,8 @@ void entry(int argc, char** argv) {
 
     // start
     int entry = g_insCnt;
-    instruction(OP(OP_PUSH, 0, 0, IMME), argc);
-    instruction(OP(OP_PUSH, 0, 0, IMME), argptr);
+    PUSH(IMME, argc);
+    PUSH(IMME, argptr);
     instruction(OP2(OP_CALL, 0), g_entry);
 
     g_entry = entry;
@@ -1120,18 +1078,18 @@ int main(int argc, char **argv) {
     DEVPRINT("allocate %d kb\n", i / 1024);
 
     lex();
-    DEVPRINT("-------- lex --------\n");
 #if !defined(NOT_DEVELOPMENT) && !defined(TEST)
+    DEVPRINT("-------- lex --------\n");
     dump_tokens();
 #endif
 
     gen();
     entry(argc - 1, argv + 1);
+#if !defined(NOT_DEVELOPMENT) && !defined(TEST)
     DEVPRINT("-------- code --------\n");
     dump_code();
+#endif
 
-    DEVPRINT("-------- vm --------\n");
-    printvm();
     DEVPRINT("-------- exec --------\n");
     exec();
 

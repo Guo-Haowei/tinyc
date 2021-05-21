@@ -14,6 +14,6 @@ This project is a tiny C interpreter.
 - [ ] dereference `&`
 
 - [x] branch `if, else, ?:`
-- [ ] iteration `do, while, for, break, continue`
+- [x] iteration `do, while`
 
 - [ ] `enum`
