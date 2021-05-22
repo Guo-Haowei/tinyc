@@ -1,49 +1,6 @@
-//- src: cc.c
-//-
-//- Data Type
-//- struct {
-//-     int base    : 8; // char, int or void
-//-     int ptr     : 8; // char*, int* or void*
-//-     int ptr     : 8; // char**, int** or void**
-//-     int ptr     : 8;
-//- };
-//-
-//- Virtual Machine
-//- Instruction
-//- struct {
-//-     int op      : 8;
-//-     int dest    : 8;
-//-     int src1    : 8;
-//-     int src2    : 8;
-//-     int immediate;
-//- };
-//-
-//- instruction sets (src2 is either register or immediate value)
-//-
-//- push src2               >-- esp -= 4; [esp] = src2
-//- pop dest                >-- dest = [esp]; esp += 4
-//- mov dest, src2          >-- dest = src2
-//- save dst, src2, byte    >-- [dst] = src2
-//- load dst, src1, byte    >-- dst = [src1]
-//-
-//- add dst, src1, src2     >-- dst = src1 + src2
-//- sub dst, src1, src2     >-- dst = src1 - src2
-//- mul dst, src1, src2     >-- dst = src1 * src2
-//- div dst, src1, src2     >-- dst = src1 / src2
-//- rem dst, src1, src2     >-- dst = src1 % src2
-//- not dst                 >-- dst = !dst
-//-
-//- jz src2                 >-- if eax == 0; pc = src2
-//- jump src2               >-- pc = src2
-//- ret                     >-- pop pc
-//- call func               >-- push pc + 1; pc = func
-//-
-//- printf                  >-- call c printf, push 8 args onto stack
-
 #ifndef NOT_DEVELOPMENT
-#include <stdlib.h> // exit
-#include <stdio.h> // printf
-// #include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
 #endif // #ifndef NOT_DEVELOPMENT
 
 #if defined(TEST) || defined(NOT_DEVELOPMENT)
@@ -414,14 +371,14 @@ int primary_expr() {
         }
 
         if (type == Global) {
-            panic("TODO: implement globlal variable");
+            MOV(EDX, IMME, address);
+            LOADW(EAX, EDX);
+            return data_type;
         }
-
         if (type == Const) {
             MOV(EAX, IMME, address);
             return Int;
         }
-
         if (type == Undefined) {
             COMPILE_ERROR("error:%d: '%.*s' undeclared\n", ln, len, start);
         }
@@ -846,7 +803,6 @@ void stmt() {
                         ptr = (ptr << 8) | 0xFF;
 
                     int id = expect(Id);
-                    // char* start = g_tks[id].start;
                     int prev = g_symCnt - 1;
                     syms[g_symCnt].address = 4;
 
@@ -894,7 +850,8 @@ void stmt() {
 
 // an object could be a global variable, an enum or a function
 void obj() {
-    if (TK_ATTRIB(g_tkIter, Kind) == Enum) {
+    int kind = TK_ATTRIB(g_tkIter, Kind);
+    if (kind == Enum) {
         ++g_tkIter;
         expect('{');
         int val = 0;
@@ -911,9 +868,7 @@ void obj() {
                 val = TK_ATTRIB(idx, Value);
             }
 
-            syms[g_symCnt].address = val;
-            ++g_symCnt;
-            ++val;
+            syms[g_symCnt++].address = val++;
 
             expect(','); // force comma
         }
@@ -922,10 +877,35 @@ void obj() {
         return;
     }
 
-    int data_type = expect_type();
-    int id = expect(Id);
+    int ln = TK_ATTRIB(g_tkIter, Ln);
+    int start = TK_ATTRIB(g_tkIter, Start);
+    int end = TK_ATTRIB(g_tkIter++, End);
+    if (!IS_TYPE(kind)) {
+        COMPILE_ERROR("error:%d: unexpected token '%.*s'\n", ln, end - start, start);
+    }
 
-    if (TK_ATTRIB(g_tkIter, Kind) == '(') {
+    while (TK_ATTRIB(g_tkIter, Kind) != ';') {
+        int data_type = kind, ptr = 0;
+        while (TK_ATTRIB(g_tkIter, Kind) == '*') {
+            ptr = (ptr << 8) | 0xFF;
+            ++g_tkIter;
+        }
+        data_type = (ptr << 16) | data_type;
+
+        int id = expect(Id);
+
+        if (TK_ATTRIB(g_tkIter, Kind) != '(') {
+            syms[g_symCnt].storage = Global;
+            syms[g_symCnt].tkIdx = id;
+            syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
+            syms[g_symCnt].data_type = data_type;
+            *((int*)g_bss) = 0;
+            syms[g_symCnt++].address = g_bss;
+            g_bss += 4;
+            if (TK_ATTRIB(g_tkIter, Kind) != ';') { expect(','); }
+            continue;
+        }
+
         if (streq("main", TK_ATTRIB(id, Start), 4)) {
             g_entry = g_insCnt;
         } else {
@@ -933,23 +913,18 @@ void obj() {
             syms[g_symCnt].tkIdx = id;
             syms[g_symCnt].data_type = data_type;
             syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
-            syms[g_symCnt].address = g_insCnt;
-            ++g_symCnt;
+            syms[g_symCnt++].address = g_insCnt;
         }
 
         enter_scope();
         expect('(');
         int argCnt = 0;
         while (TK_ATTRIB(g_tkIter, Kind) != ')') {
-            if (argCnt > 0) {
-                expect(',');
-            }
-
+            if (argCnt > 0) { expect(','); }
             int data_type = expect_type();
             int ptr = 0;
             for (; TK_ATTRIB(g_tkIter, Kind) == '*'; ++g_tkIter) { ptr = (ptr << 8) | 0xFF; }
             data_type = (ptr << 16) | data_type;
-
             syms[g_symCnt].tkIdx = expect(Id);
             syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
             syms[g_symCnt].data_type = data_type;
@@ -968,8 +943,8 @@ void obj() {
         exit_scope();
         return;
     }
-
-    panic("TODO: implement global variable");
+    ++g_tkIter;
+    return;
 }
 
 void gen() {
