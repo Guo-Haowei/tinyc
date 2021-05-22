@@ -15,4 +15,4 @@ This is a tiny C interpreter. (Aiming for self hosting)
 - [x] branch `if, else, ?:`
 - [x] iteration `while, break, continue`
 
-- [ ] `enum`
+- [x] `enum`

@@ -84,15 +84,13 @@ enum { _TK_OFFSET = 128,
        Int, Char, Void,
        Break, Cont, Do, Else, Enum, For, If, Return, Sizeof, While,
        Printf, Fopen, Fgetc, Malloc, Memset, Exit,
-       TkCnt };
-enum { // Printf, Fopen, Fgetc, Malloc, Memset, Exit,
-       Add = TkCnt, Sub, Mul, Div, Rem,
+       Add, Sub, Mul, Div, Rem,
        Mov, Push, Pop, Load, Save,
        Neq, Eq, Gt, Ge, Lt, Le,
        Not, Ret, Jz, Jnz, Jump, Call,
-       _BreakStub, _ContStub };
-enum { Undefined, Global, Param, Local, Func, Const };
-enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME };
+       _BreakStub, _ContStub, };
+enum { Undefined, Global, Param, Local, Func, Const, };
+enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME, };
 
 struct Token {
     int kind;
@@ -139,7 +137,9 @@ int scopeCnt;
 struct Symbol* syms;
 int g_symCnt;
 
+#if !defined(TEST) && !defined(NOT_DEVELOPMENT)
 int expr();
+#endif
 
 // utility
 void panic(char* fmt) {
@@ -388,6 +388,11 @@ int primary_expr() {
 
         if (type == Global) {
             panic("TODO: implement globlal variable");
+        }
+
+        if (type == Const) {
+            MOV(EAX, IMME, address);
+            return Int;
         }
 
         if (type == Undefined) {
@@ -812,6 +817,34 @@ void stmt() {
 
 // an object could be a global variable, an enum or a function
 void obj() {
+    if (g_tks[g_tkIter].kind == Enum) {
+        ++g_tkIter;
+        expect('{');
+        int val = 0;
+        while (g_tks[g_tkIter].kind != '}') {
+            int idx = expect(Id);
+            syms[g_symCnt].tkIdx = idx;
+            syms[g_symCnt].storage = Const;
+            syms[g_symCnt].data_type = Int;
+            syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
+
+            if (g_tks[g_tkIter].kind == '=') {
+                ++g_tkIter;
+                idx = expect(CInt);
+                val = g_tks[idx].value;
+            }
+
+            syms[g_symCnt].address = val;
+            ++g_symCnt;
+            ++val;
+
+            expect(','); // force comma
+        }
+        ++g_tkIter;
+        expect(';');
+        return;
+    }
+
     int data_type = expect_type();
     int id = expect(Id);
 
@@ -822,7 +855,9 @@ void obj() {
             syms[g_symCnt].storage = Func;
             syms[g_symCnt].tkIdx = id;
             syms[g_symCnt].data_type = data_type;
-            syms[g_symCnt++].address = g_insCnt;
+            syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
+            syms[g_symCnt].address = g_insCnt;
+            ++g_symCnt;
         }
 
         enter_scope();
@@ -857,7 +892,7 @@ void obj() {
         return;
     }
 
-    panic("TODO: implement global variable/enum");
+    panic("TODO: implement global variable");
 }
 
 void gen() {
