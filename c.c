@@ -12,7 +12,7 @@
 #define IS_LETTER(C) ((C >= 'a' && C <= 'z') || (C >= 'A' && C <= 'Z'))
 #define IS_DIGIT(C) (C >= '0' && C <= '9')
 #define IS_HEX(C) (IS_DIGIT(C) || (C >= 'A' && C <= 'F'))
-#define IS_WHITESPACE(C) (C == ' ' || C == '\n' || C == '\r' || C == '\t')
+#define IS_WHITESPACE(C) (C == ' ' || C == 9 || C == 10 || C == 13)
 #define IS_PUNCT(P, A, B) (*P == A && P[1] == B)
 #define IS_TYPE(KIND) (KIND >= Int && KIND <= Void)
 #define ALIGN(x) ((x + 3) & -4)
@@ -31,7 +31,7 @@
 #define IS_PTR(TYPE) (0xFF0000 & TYPE)
 #define TK_ATTRIB(IDX, ATTRIB) g_tks[(IDX) * TokenSize + ATTRIB]
 
-#define MAX_INS (1 << 12)
+#define MAX_INS (1 << 14)
 #define MAX_PRINF_ARGS 8
 #define CHUNK_SIZE (1 << 20)
 
@@ -40,17 +40,20 @@ enum { _TkOffset = 128,
        TkNeq, TkEq, TkGe, TkLe,
        TkAddTo, TkSubFrom, TkInc, TkDec, TkAnd, TkOr, LShift, RShift,
        _KeywordStart, Int, Char, Void,
-       Break, Cont, Do, Else, Enum, For, If, Return, Sizeof, While,
-       Printf, Fopen, Fgetc, Malloc, Memset, Exit, _KeywordEnd,
+       Break, Cont, Else, Enum, If, Return, While,
+       Printf, Fopen, Fgetc, Malloc, Memset, Exit,
+       _KeywordEnd,
        Add, Sub, Mul, Div, Rem,
        Mov, Push, Pop, Load, Save,
        Neq, Eq, Gt, Ge, Lt, Le, And, Or,
        Not, Ret, Jz, Jnz, Jump, Call,
-       _BreakStub, _ContStub, };
-enum { Undefined, Global, Param, Local, Func, Const, };
-enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME, };
+       _BreakStub, _ContStub };
+enum { Undefined, Global, Param, Local, Func, Const };
+enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME };
 enum { Kind, Value, Ln, Start, End, TokenSize }; // struct Token
-char *g_src;
+
+char *ram, *g_src;
+int memory;
 int *g_tks, g_tkCnt, g_tkIter;
 
 struct Symbol {
@@ -72,8 +75,6 @@ int g_insCnt;
 int g_entry;
 int g_pc; // program counter
 
-char* ram;
-int memory;
 int g_bss;
 
 #define MAX_SCOPE 128
@@ -110,30 +111,25 @@ int strlen(char* p) {
 }
 
 void lex() {
-    int ln = 1;
+    int ln = 1, range = _KeywordEnd - _KeywordStart - 1;
     char *p = g_src;
     while (*p) {
-        if (*p == '#' || (*p == '/' && *(p + 1) == '/')) {
-            while (*p && *p != 10) ++p;
-        } else if (IS_WHITESPACE(*p)) {
-            ln += (*p == 10);
-            p = p + 1;
-        } else {
+        if (*p == '#' || (*p == '/' && *(p + 1) == '/')) { while (*p && *p != 10) ++p; }
+        else if (IS_WHITESPACE(*p)) { ln += (*p == 10); ++p; }
+        else {
             TK_ATTRIB(g_tkCnt, Ln) = ln;
             TK_ATTRIB(g_tkCnt, Start) = p;
 
             // id or keyword
             if (IS_LETTER(*p) || *p == '_') {
                 TK_ATTRIB(g_tkCnt, Kind) = Id;
-                for (++p; IS_LETTER(*p) || IS_DIGIT(*p) || *p == '_'; ++p);
+                ++p; while (IS_LETTER(*p) || IS_DIGIT(*p) || *p == '_') { ++p; }
                 TK_ATTRIB(g_tkCnt, End) = p;
-                char *keywords = "int\0     char\0    void\0    break\0   continue\0do\0      "
-                                 "else\0    enum\0    for\0     if\0      return\0  sizeof\0  "
-                                 "while\0   printf\0  fopen\0   fgetc\0   malloc\0  memset\0  "
-                                 "exit";
-                int i = 0, range = _KeywordEnd - _KeywordStart - 1,
-                    start = TK_ATTRIB(g_tkCnt, Start), len = TK_ATTRIB(g_tkCnt, End) - start;
-
+                char *keywords = "int\0     char\0    void\0    break\0   continue\0"
+                                 "else\0    enum\0    if\0      return\0  while\0   "
+                                 "printf\0  fopen\0   fgetc\0   malloc\0  memset\0  "
+                                 "exit\0    ";
+                int i = 0, start = TK_ATTRIB(g_tkCnt, Start), len = TK_ATTRIB(g_tkCnt, End) - start;
                 while (i < range) {
                     char* kw = keywords + (i * 9);
                     int kwlen = strlen(kw);
@@ -147,20 +143,21 @@ void lex() {
             } else if (*p == '0' && p[1] == 'x') {
                 TK_ATTRIB(g_tkCnt, Kind) = CInt;
                 int result = 0;
-                for (p += 2; IS_HEX(*p); ++p) {
+                p += 2; while(IS_HEX(*p)) {
                     result = (result << 4) + ((*p < 'A') ? (*p - '0') : (*p - 55));
+                    ++p;
                 }
                 TK_ATTRIB(g_tkCnt, Value) = result;
                 TK_ATTRIB(g_tkCnt++, End) = p;
             } else if (IS_DIGIT(*p)) {
                 TK_ATTRIB(g_tkCnt, Kind) = CInt;
                 int result = 0;
-                for (; IS_DIGIT(*p); ++p) { result = result * 10 + (*p - '0'); }
+                while (IS_DIGIT(*p)) { result = result * 10 + (*p - '0'); ++p; }
                 TK_ATTRIB(g_tkCnt, Value) = result;
                 TK_ATTRIB(g_tkCnt++, End) = p;
             } else if (*p == '"') {
                 TK_ATTRIB(g_tkCnt, Kind) = CStr;
-                for (++p; *p != '"'; ++p);
+                ++p; while (*p != '"') { ++p; };
                 TK_ATTRIB(g_tkCnt++, End) = ++p;
             } else if (*p == 39) { // ascii '''
                 TK_ATTRIB(g_tkCnt, Kind) = CChar;
@@ -191,11 +188,12 @@ void lex() {
             }
         }
     }
+    return;
 }
 
 void dump_tokens() {
-    int indent = 0;
-    for (int i = 0, ln = 0; i < g_tkCnt; ++i) {
+    int indent = 0, i = 0, ln = 0;
+    while (i < g_tkCnt) {
         int tkln = TK_ATTRIB(i, Ln);
         int kind = TK_ATTRIB(i, Kind);
         int start = TK_ATTRIB(i, Start);
@@ -207,23 +205,25 @@ void dump_tokens() {
             printf("\n%-3d:%.*s", tkln, indent * 4, "                                        ");
             ln = tkln;
         }
-        char* names = "Int   Char  Void  Break Cont  Do    Else  Enum  For   "
-                      "If    Ret   SizeofWhile Print Open  MallocMemsetExit  ";
+        char* names = "Int   Char  Void  Break Cont  Else  Enum  If    "
+                      "Ret   While Print Fopen Fgetc MallocMemsetExit  ";
         printf("%.*s", len, start);
         if (kind >= Int) {
-            char *p = names + 6 * (kind - Int);
             printf("{");
-            for (int i = 0; i < 6; ++i, ++p) {
+            char *p = names + 6 * (kind - Int); int ii = 0;
+            while (ii < 6) {
                 if (*p == ' ') break;
                 printf("%c", *p);
+                ++ii; ++p;
             }
             printf("}");
         }
         printf(" ");
+        ++i;
     }
     printf("\n");
+    return;
 }
-
 
 void enter_scope() {
     if (scopeCnt >= MAX_SCOPE) {
@@ -231,6 +231,7 @@ void enter_scope() {
     }
 
     g_scopes[scopeCnt++] = ++g_scopeId;
+    return;
 }
 
 void exit_scope() {
@@ -243,6 +244,7 @@ void exit_scope() {
     }
 
     --scopeCnt;
+    return;
 }
 
 int expect(int kind) {
@@ -262,11 +264,10 @@ int expect_type() {
         for (; TK_ATTRIB(g_tkIter, Kind) == '*'; ++g_tkIter)
             ptr = (ptr << 8) | 0xFF;
         return (ptr << 16) | base_type;
-    } else {
-        char *start = TK_ATTRIB(g_tkIter, Start), *end = TK_ATTRIB(g_tkIter, End);
-        COMPILE_ERROR("error:%d: expected type specifier, got '%.*s'\n",
-            TK_ATTRIB(g_tkIter, Ln), end - start, start);
     }
+
+    char *start = TK_ATTRIB(g_tkIter, Start), *end = TK_ATTRIB(g_tkIter, End);
+    COMPILE_ERROR("error:%d: expected type specifier, got '%.*s'\n", TK_ATTRIB(g_tkIter, Ln), end - start, start);
 }
 
 void instruction(int op, int imme) {
@@ -277,6 +278,7 @@ void instruction(int op, int imme) {
     g_instructs[g_insCnt].op = op;
     g_instructs[g_insCnt].imme = imme;
     ++g_insCnt;
+    return;
 }
 
 #define OP2(op, dest) ((op) | (dest << 8))
@@ -469,6 +471,7 @@ int post_expr() {
             }
             POP(EBX);
             ADD(EAX, EBX, EAX, 0);
+            MOV(EDX, EAX, 0);
             if (is_charptr) { LOADB(EAX, EAX); }
             else { LOADW(EAX, EAX); }
             expect(']');
@@ -814,16 +817,17 @@ void stmt() {
                     syms[g_symCnt].tkIdx = id;
                     syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
                     syms[g_symCnt].data_type = (ptr << 16) | base_type;
-                    ++g_symCnt;
 
                     SUB(ESP, ESP, IMME, 4);
                     if (TK_ATTRIB(g_tkIter, Kind) == '=') {
                         ++g_tkIter;
                         assign_expr();
-                        instruction(OP(Save, ESP, EAX, 0), 4);
+                        // printf("address %d\n", syms[g_symCnt]);
+                        SUB(EDX, EBP, IMME, syms[g_symCnt].address);
+                        instruction(OP(Save, EDX, EAX, 0), 4);
                     }
 
-                    ++restore, ++varNum;
+                    ++restore, ++varNum, ++g_symCnt;
                 } while (TK_ATTRIB(g_tkIter, Kind) != ';');
 
                 ++g_tkIter;
@@ -870,6 +874,7 @@ void obj() {
 
             syms[g_symCnt++].address = val++;
 
+            if (TK_ATTRIB(g_tkIter, Kind) == '}') { break; }
             expect(','); // force comma
         }
         ++g_tkIter;
@@ -985,6 +990,7 @@ void gen() {
     }
 
     exit_scope();
+    return;
 }
 
 void exec() {
@@ -1073,6 +1079,7 @@ void exec() {
             break;
         } else { panic("Invalid op code"); }
     }
+    return;
 }
 
 void dump_code() {
@@ -1128,6 +1135,7 @@ void dump_code() {
             panic("invalid op code");
         }
     }
+    return;
 }
 
 void entry(int argc, char** argv) {
@@ -1172,23 +1180,18 @@ int main(int argc, char **argv) {
 
     int src_reserved = 1 << 18; {
         g_src = ram + (memory - src_reserved);
-        int i = 0, c;
-        while ((c = fgetc(fp)) != -1) {
-            if (i >= src_reserved) { panic("input file is too big\n"); }
-            g_src[i++] = c;
-        }
+        int c, i = 0;;
+        while ((c = fgetc(fp)) != -1) { g_src[i++] = c; }
         g_src[i] = 0;
-        DEVPRINT("source len: %d\n", i);
     }
 
-    int tk_reserved = 4 * TokenSize * (src_reserved >> 1);
-    {
+    int tk_reserved = 4 * TokenSize * (src_reserved >> 1); {
         g_tks = ram + (memory - src_reserved - tk_reserved);
         lex();
 #if !defined(NOT_DEVELOPMENT) && !defined(TEST)
-        DEVPRINT("-------- lex --------\n");
-        dump_tokens();
-        DEVPRINT("token count: %d\n", g_tkCnt);
+        // DEVPRINT("-------- lex --------\n");
+        // dump_tokens();
+        // DEVPRINT("token count: %d\n", g_tkCnt);
 #endif
     }
 
@@ -1205,8 +1208,6 @@ int main(int argc, char **argv) {
 
     DEVPRINT("-------- exec --------\n");
     exec();
-
-    free(ram);
 
     DEVPRINT("-------- exiting --------\n");
     DEVPRINT("script '%s' exit with code %d\n", argv[1], g_regs[EAX]);
