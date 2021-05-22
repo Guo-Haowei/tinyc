@@ -81,19 +81,8 @@ void test_assign() {
     return;
 }
 
-// static void test_inc_dec() {
-//     int a = 15;
-//     expect(15, a++);
-//     expect(16, a);
-//     expect(16, a--);
-//     expect(15, a);
-//     expect(14, --a);
-//     expect(14, a);
-//     expect(15, ++a);
-//     expect(15, a);
-// }
-
 void test_unary() {
+    printf("test unary\n");
     int x = 2, y = 9, z = 14214;
     printf("%d\n", -x);
     printf("%d\n", +y);
@@ -102,6 +91,7 @@ void test_unary() {
 }
 
 void test_ternary() {
+    printf("test ternary\n");
     int x = 2, y = 9, z = 14214;
     printf("%s\n", !1 ? "false" : "true");
     printf("%s\n" ,!0 ? "true" : "false");

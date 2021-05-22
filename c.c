@@ -512,10 +512,18 @@ int post_expr() {
             }
             POP(EBX);
             ADD(EAX, EBX, EAX, 0);
-            if (is_charptr) LOADB(EAX, EAX);
-            else LOADW(EAX, EAX);
+            if (is_charptr) { LOADB(EAX, EAX); }
+            else { LOADW(EAX, EAX); }
             expect(']');
             data_type = ((data_type >> 8) & 0xFF0000) | ((data_type & 0xFFFF));
+        } else if (kind == TkInc || kind == TkDec) {
+            ++g_tkIter;
+            LOADW(EAX, EDX);
+            MOV(EBX, EAX, 0);
+            int value = (IS_PTR(data_type) && data_type != CHAR_PTR) ? 4 : 1;
+            int op = kind == TkInc ? Add : Sub;
+            instruction(OP(op, EBX, EBX, IMME), value);
+            instruction(OP(Save, EDX, EBX, 0), 4);
         } else {
             break;
         }
@@ -554,6 +562,16 @@ int unary_expr() {
         if (data_type == CHAR_PTR) LOADB(EAX, EDX);
         else LOADW(EAX, EDX);
         return ((data_type >> 8) & 0xFF0000) | (0xFFFF & data_type);
+    }
+    if (kind == TkInc || kind == TkDec) {
+        ++g_tkIter;
+        int data_type = unary_expr();
+        LOADW(EAX, EDX);
+        int value = (IS_PTR(data_type) && data_type != CHAR_PTR) ? 4 : 1;
+        int op = kind == TkInc ? Add : Sub;
+        instruction(OP(op, EAX, EAX, IMME), value);
+        instruction(OP(Save, EDX, EAX, 0), 4);
+        return data_type;
     }
     return post_expr();
 }
@@ -684,10 +702,10 @@ int assign_expr() {
         if (kind == TkAddTo) {
             ++g_tkIter;
             PUSH(EDX, 0);
-            int rhs = relation_expr();
+            relation_expr();
             POP(EDX);
             LOADW(EBX, EDX);
-            if (IS_PTR(rhs) && rhs != CHAR_PTR) { MUL(EAX, EAX, IMME, 4); }
+            if (IS_PTR(data_type) && data_type != CHAR_PTR) { MUL(EAX, EAX, IMME, 4); }
             ADD(EAX, EBX, EAX, 0);
             instruction(OP(Save, EDX, EAX, 0), 4);
             continue;
@@ -696,10 +714,10 @@ int assign_expr() {
         if (kind == TkSubFrom) {
             ++g_tkIter;
             PUSH(EDX, 0);
-            int rhs = relation_expr();
+            relation_expr();
             POP(EDX);
             LOADW(EBX, EDX);
-            if (IS_PTR(rhs) && rhs != CHAR_PTR) { MUL(EAX, EAX, IMME, 4); }
+            if (IS_PTR(data_type) && data_type != CHAR_PTR) { MUL(EAX, EAX, IMME, 4); }
             SUB(EAX, EBX, EAX, 0);
             instruction(OP(Save, EDX, EAX, 0), 4);
             continue;

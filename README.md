@@ -7,7 +7,7 @@ This is a tiny C interpreter. (Aiming for self hosting)
 - [x] relational `>, <, >=, <=, !=, ==`,
 - [x] unary `+, -, !`
 - [x] assignment `=, +=, -=`
-- [ ] increment `++, --`
+- [x] increment `++, --`
 - [x] logical `&&, ||`
 - [x] bitwise `&, |, >>, <<`
 - [x] address `*, []`
