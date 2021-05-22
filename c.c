@@ -76,18 +76,20 @@
 #define LOADW(DEST, SRC) instruction(Load | (DEST << 8) | (SRC << 16), 4)
 #define CHAR_PTR (0xFF0000 | Char)
 #define VOID_PTR (0xFF0000 | Void)
+#define IS_PTR(TYPE) (0xFF0000 & TYPE)
 
 enum { _TK_OFFSET = 128,
        CInt, Id, CStr, CChar,
        TkNeq, TkEq, TkGe, TkLe,
-       TkAddTo, TkSubFrom, TkInc, TkDec, TkAnd, TkOr, TkLshift, TkRshift,
+       TkAddTo, TkSubFrom, TkInc, TkDec, TkAnd, TkOr, LShift, RShift,
        Int, Char, Void,
        Break, Cont, Do, Else, Enum, For, If, Return, Sizeof, While,
        Printf, Fopen, Fgetc, Malloc, Memset, Exit,
        Add, Sub, Mul, Div, Rem,
        Mov, Push, Pop, Load, Save,
-       Neq, Eq, Gt, Ge, Lt, Le,
+       Neq, Eq, Gt, Ge, Lt, Le, And, Or,
        Not, Ret, Jz, Jnz, Jump, Call,
+       
        _BreakStub, _ContStub, };
 enum { Undefined, Global, Param, Local, Func, Const, };
 enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME, };
@@ -192,7 +194,6 @@ void lex() {
                 for (++p; *p != '"'; ++p);
                 g_tks[g_tkCnt++].end = ++p;
             } else if (*p == 39) { // ascii '''
-                /// TODO: escape
                 g_tks[g_tkCnt].kind = CChar;
                 g_tks[g_tkCnt].value = p[1];
                 g_tks[g_tkCnt++].end = (p += 3);
@@ -201,8 +202,6 @@ void lex() {
 
                 if (IS_PUNCT(p, '=', '=')) { g_tks[g_tkCnt].kind = TkEq; ++p; }
                 else if (IS_PUNCT(p, '!', '=')) { g_tks[g_tkCnt].kind = TkNeq; ++p; }
-                else if (IS_PUNCT(p, '>', '=')) { g_tks[g_tkCnt].kind = TkGe; ++p; }
-                else if (IS_PUNCT(p, '<', '=')) { g_tks[g_tkCnt].kind = TkLe; ++p; }
                 else if (IS_PUNCT(p, '&', '&')) { g_tks[g_tkCnt].kind = TkAnd; ++p; }
                 else if (IS_PUNCT(p, '|', '|')) { g_tks[g_tkCnt].kind = TkOr; ++p; }
                 else if (*p == '+') {
@@ -211,6 +210,12 @@ void lex() {
                 } else if (*p == '-') {
                     if (p[1] == '-') { g_tks[g_tkCnt].kind = TkDec; ++p; }
                     else if (p[1] == '=') { g_tks[g_tkCnt].kind = TkSubFrom; ++p; }
+                } else if (*p == '>') {
+                    if (p[1] == '=') { g_tks[g_tkCnt].kind = TkGe; ++p; }
+                    else if (p[1] == '>') { g_tks[g_tkCnt].kind = RShift; ++p; }
+                } else if (*p == '<') {
+                    if (p[1] == '=') { g_tks[g_tkCnt].kind = TkLe; ++p; }
+                    else if (p[1] == '<') { g_tks[g_tkCnt].kind = LShift; ++p; }
                 }
 
                 g_tks[g_tkCnt++].end = ++p;
@@ -464,7 +469,7 @@ int post_expr() {
         int ln = g_tks[g_tkIter].ln;
         if (kind == '[') {
             ++g_tkIter;
-            if (!(data_type & 0xFF0000)) {
+            if (!IS_PTR(data_type)) {
                 COMPILE_ERROR("error:%d: attempted to dereference a non-pointer type 0x%X\n", ln, data_type);
             }
             PUSH(EAX, 0);
@@ -509,7 +514,7 @@ int unary_expr() {
     if (kind == '*') {
         ++g_tkIter;
         int data_type = unary_expr();
-        if (!(data_type & 0xFF0000)) {
+        if (!IS_PTR(data_type)) {
             COMPILE_ERROR("error:%d: attempted to dereference a non-pointer type 0x%X\n", ln, data_type);
         }
 
@@ -526,7 +531,7 @@ int unary_expr() {
 
 int mul_expr() {
     int data_type = unary_expr();
-    for (;;) {
+    while (1) {
         int optk = g_tks[g_tkIter].kind; int opcode;
         if (optk == '*') opcode = Mul;
         else if (optk == '/') opcode = Div;
@@ -544,7 +549,7 @@ int mul_expr() {
 
 int add_expr() {
     int data_type = mul_expr();
-    for (;;) {
+    while (1) {
         int optk = g_tks[g_tkIter].kind; int opcode;
         if (optk == '+') opcode = Add;
         else if (optk == '-') opcode = Sub;
@@ -553,18 +558,31 @@ int add_expr() {
         PUSH(EAX, 0);
         mul_expr();
         POP(EBX);
-        if ((data_type & 0xFF0000) && data_type != CHAR_PTR) {
-            MUL(EAX, EAX, IMME, 4);
-        }
+        if (IS_PTR(data_type) && data_type != CHAR_PTR) { MUL(EAX, EAX, IMME, 4); }
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
 
     return data_type;
 }
 
-int relation_expr() {
+int shift_expr() {
     int data_type = add_expr();
-    for (;;) {
+    while (1) {
+        int kind = g_tks[g_tkIter].kind;
+        if (kind != LShift && kind != RShift) break;
+        ++g_tkIter;
+        PUSH(EAX, 0);
+        add_expr();
+        POP(EBX);
+        instruction(OP(kind, EAX, EBX, EAX), 0);
+    }
+    return data_type;
+}
+
+
+int relation_expr() {
+    int data_type = shift_expr();
+    while (1) {
         int kind = g_tks[g_tkIter].kind; int opcode;
         if (kind == TkNeq) opcode = Neq;
         else if (kind == TkEq) opcode = Eq;
@@ -576,7 +594,23 @@ int relation_expr() {
         else break;
         ++g_tkIter;
         PUSH(EAX, 0);
-        add_expr();
+        shift_expr();
+        POP(EBX);
+        instruction(OP(opcode, EAX, EBX, EAX), 0);
+    }
+    return data_type;
+}
+
+int bit_expr() {
+    int data_type = relation_expr();
+    while (1) {
+        int kind = g_tks[g_tkIter].kind, opcode;
+        if (kind == '&') opcode = And;
+        else if (kind == '|') opcode = Or;
+        else break;
+        ++g_tkIter;
+        PUSH(EAX, 0);
+        relation_expr();
         POP(EBX);
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }
@@ -584,28 +618,19 @@ int relation_expr() {
 }
 
 int logical_expr() {
-    int data_type = relation_expr();
-    for (;;) {
-        int kind = g_tks[g_tkIter].kind;
-        if (kind == TkAnd) {
-            ++g_tkIter;
-            int skip = g_insCnt;
-            instruction(Jz, 0);
-            relation_expr();
-            g_instructs[skip].imme = g_insCnt;
-            continue;
-        }
+    int data_type = bit_expr();
+    while (1) {
+        int kind = g_tks[g_tkIter].kind, opcode;
+        if (kind == TkAnd) opcode = Jz;
+        else if (kind == TkOr) opcode = Jnz;
+        else break;
 
-        if (kind == TkOr) {
-            ++g_tkIter;
-            int skip = g_insCnt;
-            instruction(Jnz, 0);
-            relation_expr();
-            g_instructs[skip].imme = g_insCnt;
-            continue;
-        }
-
-        break;
+        ++g_tkIter;
+        int skip = g_insCnt;
+        instruction(opcode, 0);
+        bit_expr();
+        g_instructs[skip].imme = g_insCnt;
+        continue;
     }
 
     return data_type;
@@ -613,7 +638,7 @@ int logical_expr() {
 
 int assign_expr() {
     int data_type = logical_expr();
-    for (;;) {
+    while (1) {
         int kind = g_tks[g_tkIter].kind;
         if (kind == '=') {
             ++g_tkIter;
@@ -627,9 +652,10 @@ int assign_expr() {
         if (kind == TkAddTo) {
             ++g_tkIter;
             PUSH(EDX, 0);
-            int rhs = relation_expr(); // rhs
+            int rhs = relation_expr();
             POP(EDX);
             LOADW(EBX, EDX);
+            if (IS_PTR(rhs) && rhs != CHAR_PTR) { MUL(EAX, EAX, IMME, 4); }
             ADD(EAX, EBX, EAX, 0);
             instruction(OP(Save, EDX, EAX, 0), 4);
             continue;
@@ -641,6 +667,7 @@ int assign_expr() {
             int rhs = relation_expr();
             POP(EDX);
             LOADW(EBX, EDX);
+            if (IS_PTR(rhs) && rhs != CHAR_PTR) { MUL(EAX, EAX, IMME, 4); }
             SUB(EAX, EBX, EAX, 0);
             instruction(OP(Save, EDX, EAX, 0), 4);
             continue;
@@ -992,7 +1019,11 @@ void exec() {
         else if (op == Gt) { g_regs[dest] = g_regs[src1] > value; }
         else if (op == Le) { g_regs[dest] = g_regs[src1] <= value; }
         else if (op == Lt) { g_regs[dest] = g_regs[src1] < value; }
+        else if (op == And) { g_regs[dest] = g_regs[src1] & value; }
+        else if (op == Or) { g_regs[dest] = g_regs[src1] | value; }
         else if (op == Not) { g_regs[dest] = !g_regs[dest]; }
+        else if (op == LShift) { g_regs[dest] = g_regs[src1] << value; }
+        else if (op == RShift) { g_regs[dest] = g_regs[src1] >> value; }
         else if (op == Save) {
             if (imme == 4) *((int*)g_regs[dest]) = g_regs[src1];
             else *((char*)g_regs[dest]) = g_regs[src1];
@@ -1040,8 +1071,16 @@ void dump_code() {
         } else if (op == Eq || op == Neq || op == Gt || op == Ge || op == Lt || op == Le) {
             char* opstr = op == Eq ? "==" : op == Neq ? "!=" : op == Gt ? ">" : op == Ge ? ">=" : op == Lt ? "<" : "<=";
             printf("  %s %.*s, %.*s, %.*s\n", opstr, REG2STR(dest), REG2STR(src1), REG2STR(src2));
+        } else if (op == And) {
+            printf("  and %.*s, %.*s, %.*s\n", REG2STR(dest), REG2STR(src1), REG2STR(src2));
+        } else if (op == Or) {
+            printf("  or %.*s, %.*s, %.*s\n", REG2STR(dest), REG2STR(src1), REG2STR(src2));
         } else if (op == Not) {
             printf("  not %.*s\n", REG2STR(dest));
+        } else if (op == LShift) {
+            printf("  lshift %.*s, %.*s, %.*s\n", REG2STR(dest), REG2STR(src1), REG2STR(src2));
+        } else if (op == RShift) {
+            printf("  rshift %.*s, %.*s, %.*s\n", REG2STR(dest), REG2STR(src1), REG2STR(src2));
         } else if (op == Push) {
             if (src2 == IMME) printf("  push %d(0x%08X)\n", imme, imme);
             else printf("  push %.*s\n", REG2STR(src2));
@@ -1111,6 +1150,7 @@ int main(int argc, char **argv) {
     int i = 0;
     for (int c; (c = fgetc(fp)) != -1; ++i) { g_src[i] = c; }
     g_src[i] = 0;
+    DEVPRINT("source len: %d\n", i);
 
     g_tks = calloc(len, sizeof(struct Token));
     syms = calloc(len, sizeof(struct Symbol));
@@ -1121,6 +1161,7 @@ int main(int argc, char **argv) {
 #if !defined(NOT_DEVELOPMENT) && !defined(TEST)
     DEVPRINT("-------- lex --------\n");
     dump_tokens();
+    DEVPRINT("token count: %d\n", g_tkCnt);
 #endif
 
     g_bss = ram;

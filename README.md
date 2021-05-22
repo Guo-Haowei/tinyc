@@ -9,7 +9,7 @@ This is a tiny C interpreter. (Aiming for self hosting)
 - [x] assignment `=, +=, -=`
 - [ ] increment `++, --`
 - [x] logical `&&, ||`
-- [ ] bitwise `&, |, >>, <<`
+- [x] bitwise `&, |, >>, <<`
 - [x] address `*, []`
 
 - [x] branch `if, else, ?:`
