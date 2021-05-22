@@ -72,6 +72,8 @@
 #define CHAR_PTR (0xFF0000 | Char)
 #define VOID_PTR (0xFF0000 | Void)
 #define IS_PTR(TYPE) (0xFF0000 & TYPE)
+#define TK_ATTRIB(IDX, ATTRIB) g_tks[(IDX) * TokenSize + ATTRIB]
+
 #define MAX_INS (1 << 12)
 #define MAX_PRINF_ARGS 8
 #define CHUNK_SIZE (1 << 20)
@@ -90,14 +92,9 @@ enum { _TkOffset = 128,
        _BreakStub, _ContStub, };
 enum { Undefined, Global, Param, Local, Func, Const, };
 enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME, };
-
-struct Token {
-    int kind;
-    int value;
-    int ln;
-    char* start;
-    char* end;
-};
+enum { Kind, Value, Ln, Start, End, TokenSize }; // struct Token
+char *g_src;
+int *g_tks, g_tkCnt, g_tkIter;
 
 struct Symbol {
     int tkIdx;
@@ -111,12 +108,6 @@ struct Ins {
     int op;
     int imme;
 };
-
-char *g_src;
-
-// tokens
-struct Token* g_tks;
-int g_tkCnt, g_tkIter;
 
 int g_regs[IMME];
 struct Ins g_instructs[MAX_INS];
@@ -171,73 +162,75 @@ void lex() {
             ln += (*p == 10);
             p = p + 1;
         } else {
-            g_tks[g_tkCnt].ln = ln;
-            g_tks[g_tkCnt].start = p;
+            TK_ATTRIB(g_tkCnt, Ln) = ln;
+            TK_ATTRIB(g_tkCnt, Start) = p;
 
             // id or keyword
             if (IS_LETTER(*p) || *p == '_') {
-                g_tks[g_tkCnt].kind = Id;
+                TK_ATTRIB(g_tkCnt, Kind) = Id;
                 for (++p; IS_LETTER(*p) || IS_DIGIT(*p) || *p == '_'; ++p);
-                g_tks[g_tkCnt].end = p;
+                TK_ATTRIB(g_tkCnt, End) = p;
                 char *keywords = "int\0     char\0    void\0    break\0   continue\0do\0      "
                                  "else\0    enum\0    for\0     if\0      return\0  sizeof\0  "
                                  "while\0   printf\0  fopen\0   fgetc\0   malloc\0  memset\0  "
                                  "exit";
-                int i = 0, len = g_tks[g_tkCnt].end - g_tks[g_tkCnt].start, range = _KeywordEnd - _KeywordStart - 1;
+                int i = 0, range = _KeywordEnd - _KeywordStart - 1,
+                    start = TK_ATTRIB(g_tkCnt, Start), len = TK_ATTRIB(g_tkCnt, End) - start;
+
                 while (i < range) {
                     char* kw = keywords + (i * 9);
                     int kwlen = strlen(kw);
-                    if (kwlen == len && streq(g_tks[g_tkCnt].start, kw, 8)) {
-                        g_tks[g_tkCnt].kind = _KeywordStart + i + 1;
+                    if (kwlen == len && streq(start, kw, 8)) {
+                        TK_ATTRIB(g_tkCnt, Kind) = _KeywordStart + i + 1;
                         break;
                     }
                     ++i;
                 }
-                ++g_tkCnt;
+                g_tkCnt += 1;
             } else if (*p == '0' && p[1] == 'x') {
-                g_tks[g_tkCnt].kind = CInt;
+                TK_ATTRIB(g_tkCnt, Kind) = CInt;
                 int result = 0;
                 for (p += 2; IS_HEX(*p); ++p) {
                     result = (result << 4) + ((*p < 'A') ? (*p - '0') : (*p - 55));
                 }
-                g_tks[g_tkCnt].value = result;
-                g_tks[g_tkCnt++].end = p;
+                TK_ATTRIB(g_tkCnt, Value) = result;
+                TK_ATTRIB(g_tkCnt++, End) = p;
             } else if (IS_DIGIT(*p)) {
-                g_tks[g_tkCnt].kind = CInt;
+                TK_ATTRIB(g_tkCnt, Kind) = CInt;
                 int result = 0;
                 for (; IS_DIGIT(*p); ++p) { result = result * 10 + (*p - '0'); }
-                g_tks[g_tkCnt].value = result;
-                g_tks[g_tkCnt++].end = p;
+                TK_ATTRIB(g_tkCnt, Value) = result;
+                TK_ATTRIB(g_tkCnt++, End) = p;
             } else if (*p == '"') {
-                g_tks[g_tkCnt].kind = CStr;
+                TK_ATTRIB(g_tkCnt, Kind) = CStr;
                 for (++p; *p != '"'; ++p);
-                g_tks[g_tkCnt++].end = ++p;
+                TK_ATTRIB(g_tkCnt++, End) = ++p;
             } else if (*p == 39) { // ascii '''
-                g_tks[g_tkCnt].kind = CChar;
-                g_tks[g_tkCnt].value = p[1];
-                g_tks[g_tkCnt++].end = (p += 3);
+                TK_ATTRIB(g_tkCnt, Kind) = CChar;
+                TK_ATTRIB(g_tkCnt, Value) = p[1];
+                TK_ATTRIB(g_tkCnt++, End) = (p += 3);
             } else {
-                g_tks[g_tkCnt].kind = *p;
+                TK_ATTRIB(g_tkCnt, Kind) = *p;
 
-                if (IS_PUNCT(p, '=', '=')) { g_tks[g_tkCnt].kind = TkEq; ++p; }
-                else if (IS_PUNCT(p, '!', '=')) { g_tks[g_tkCnt].kind = TkNeq; ++p; }
-                else if (IS_PUNCT(p, '&', '&')) { g_tks[g_tkCnt].kind = TkAnd; ++p; }
-                else if (IS_PUNCT(p, '|', '|')) { g_tks[g_tkCnt].kind = TkOr; ++p; }
+                if (IS_PUNCT(p, '=', '=')) { TK_ATTRIB(g_tkCnt, Kind) = TkEq; ++p; }
+                else if (IS_PUNCT(p, '!', '=')) { TK_ATTRIB(g_tkCnt, Kind) = TkNeq; ++p; }
+                else if (IS_PUNCT(p, '&', '&')) { TK_ATTRIB(g_tkCnt, Kind) = TkAnd; ++p; }
+                else if (IS_PUNCT(p, '|', '|')) { TK_ATTRIB(g_tkCnt, Kind) = TkOr; ++p; }
                 else if (*p == '+') {
-                    if (p[1] == '+') { g_tks[g_tkCnt].kind = TkInc; ++p; }
-                    else if (p[1] == '=') { g_tks[g_tkCnt].kind = TkAddTo; ++p; }
+                    if (p[1] == '+') { TK_ATTRIB(g_tkCnt, Kind) = TkInc; ++p; }
+                    else if (p[1] == '=') { TK_ATTRIB(g_tkCnt, Kind) = TkAddTo; ++p; }
                 } else if (*p == '-') {
-                    if (p[1] == '-') { g_tks[g_tkCnt].kind = TkDec; ++p; }
-                    else if (p[1] == '=') { g_tks[g_tkCnt].kind = TkSubFrom; ++p; }
+                    if (p[1] == '-') { TK_ATTRIB(g_tkCnt, Kind) = TkDec; ++p; }
+                    else if (p[1] == '=') { TK_ATTRIB(g_tkCnt, Kind) = TkSubFrom; ++p; }
                 } else if (*p == '>') {
-                    if (p[1] == '=') { g_tks[g_tkCnt].kind = TkGe; ++p; }
-                    else if (p[1] == '>') { g_tks[g_tkCnt].kind = RShift; ++p; }
+                    if (p[1] == '=') { TK_ATTRIB(g_tkCnt, Kind) = TkGe; ++p; }
+                    else if (p[1] == '>') { TK_ATTRIB(g_tkCnt, Kind) = RShift; ++p; }
                 } else if (*p == '<') {
-                    if (p[1] == '=') { g_tks[g_tkCnt].kind = TkLe; ++p; }
-                    else if (p[1] == '<') { g_tks[g_tkCnt].kind = LShift; ++p; }
+                    if (p[1] == '=') { TK_ATTRIB(g_tkCnt, Kind) = TkLe; ++p; }
+                    else if (p[1] == '<') { TK_ATTRIB(g_tkCnt, Kind) = LShift; ++p; }
                 }
 
-                g_tks[g_tkCnt++].end = ++p;
+                TK_ATTRIB(g_tkCnt++, End) = ++p;
             }
         }
     }
@@ -246,10 +239,10 @@ void lex() {
 void dump_tokens() {
     int indent = 0;
     for (int i = 0, ln = 0; i < g_tkCnt; ++i) {
-        int tkln = g_tks[i].ln;
-        int kind = g_tks[i].kind;
-        char* start = g_tks[i].start;
-        char* end = g_tks[i].end;
+        int tkln = TK_ATTRIB(i, Ln);
+        int kind = TK_ATTRIB(i, Kind);
+        int start = TK_ATTRIB(i, Start);
+        int end = TK_ATTRIB(i, End);
         int len = end - start;
         if (kind == '{') { indent += 1; }
         else if (kind == '}') { indent -= 1; }
@@ -296,30 +289,26 @@ void exit_scope() {
 }
 
 int expect(int kind) {
-    if (g_tks[g_tkIter].kind != kind) {
+    if (TK_ATTRIB(g_tkIter, Kind) != kind) {
+        char *start = TK_ATTRIB(g_tkIter, Start), *end = TK_ATTRIB(g_tkIter, End);
         COMPILE_ERROR("error:%d: expected token '%c'(%d), got '%.*s'\n",
-            g_tks[g_tkIter].ln,
-            kind < 128 ? kind : ' ',
-            kind,
-            g_tks[g_tkIter].end - g_tks[g_tkIter].start,
-            g_tks[g_tkIter].start);
+            TK_ATTRIB(g_tkIter, Ln), kind < 128 ? kind : ' ', kind, end - start, start);
     }
     return g_tkIter++;
 }
 
 int expect_type() {
-    int base_type = g_tks[g_tkIter].kind;
+    int base_type = TK_ATTRIB(g_tkIter, Kind);
     if (IS_TYPE(base_type)) {
         ++g_tkIter;
         int ptr = 0;
-        for (; g_tks[g_tkIter].kind == '*'; ++g_tkIter)
+        for (; TK_ATTRIB(g_tkIter, Kind) == '*'; ++g_tkIter)
             ptr = (ptr << 8) | 0xFF;
         return (ptr << 16) | base_type;
     } else {
+        char *start = TK_ATTRIB(g_tkIter, Start), *end = TK_ATTRIB(g_tkIter, End);
         COMPILE_ERROR("error:%d: expected type specifier, got '%.*s'\n",
-            g_tks[g_tkIter].ln,
-            g_tks[g_tkIter].end - g_tks[g_tkIter].start,
-            g_tks[g_tkIter].start);
+            TK_ATTRIB(g_tkIter, Ln), end - start, start);
     }
 }
 
@@ -346,12 +335,12 @@ int g_callNum;
 
 int primary_expr() {
     int tkIdx = g_tkIter++;
-    char* start = g_tks[tkIdx].start;
-    char* end = g_tks[tkIdx].end;
-    int ln = g_tks[tkIdx].ln;
-    int kind = g_tks[tkIdx].kind;
+    char* start = TK_ATTRIB(tkIdx, Start);
+    char* end = TK_ATTRIB(tkIdx, End);
+    int ln = TK_ATTRIB(tkIdx, Ln);
+    int kind = TK_ATTRIB(tkIdx, Kind);
+    int value = TK_ATTRIB(tkIdx, Value);
     int len = end - start;
-    int value = g_tks[tkIdx].value;
     if (kind == CInt || kind == CChar) {
         MOV(EAX, IMME, value);
         return Int;
@@ -374,10 +363,10 @@ int primary_expr() {
                 ++i;
             }
 
-            if (g_tks[g_tkIter].kind != CStr) break;
-            start = g_tks[g_tkIter].start;
-            end = g_tks[g_tkIter].end;
-            ln = g_tks[g_tkIter].ln;
+            if (TK_ATTRIB(g_tkIter, Kind) != CStr) break;
+            start = TK_ATTRIB(g_tkIter, Start);
+            end = TK_ATTRIB(g_tkIter, End);
+            ln = TK_ATTRIB(g_tkIter, Ln);
             len = end - start;
             ++g_tkIter;
         }
@@ -394,10 +383,10 @@ int primary_expr() {
     }
     
     if (kind == Id) {
-        if (g_tks[g_tkIter].kind == '(') {
+        if (TK_ATTRIB(g_tkIter, Kind) == '(') {
             ++g_tkIter;
             int argc;
-            for (argc = 0; g_tks[g_tkIter].kind != ')'; ++argc) {
+            for (argc = 0; TK_ATTRIB(g_tkIter, Kind) != ')'; ++argc) {
                 if (argc > 0) expect(',');
                 assign_expr();
                 PUSH(EAX, 0);
@@ -415,8 +404,8 @@ int primary_expr() {
         int address = 0, type = Undefined, data_type = 0;
         for (int i = g_symCnt - 1; i >= 0; --i) {
             int tmp = syms[i].tkIdx;
-            int tmplen = g_tks[tmp].end - g_tks[tmp].start;
-            if (len == tmplen && streq(g_tks[tmp].start, start, len)) {
+            char *tmpstart = TK_ATTRIB(tmp, Start), *tmpend = TK_ATTRIB(tmp, End);
+            if (len == (tmpend - tmpstart) && streq(start, tmpstart, len)) {
                 address = syms[i].address;
                 type = syms[i].storage;
                 data_type = syms[i].data_type;
@@ -445,7 +434,7 @@ int primary_expr() {
     if (kind == Printf) {
         expect('(');
         int argc = 0;
-        for (; g_tks[g_tkIter].kind != ')'; ++argc) {
+        for (; TK_ATTRIB(g_tkIter, Kind) != ')'; ++argc) {
             if (argc > 0) expect(',');
             assign_expr();
             PUSH(EAX, 0);
@@ -491,15 +480,25 @@ int primary_expr() {
         return VOID_PTR;
     }
 
+    if (kind == Exit) {
+        expect('(');
+        assign_expr();
+        PUSH(EAX, 0);
+        instruction(Exit, 0);
+        ADD(ESP, ESP, IMME, 4);
+        expect(')');
+        return Void;
+    }
+
     COMPILE_ERROR("error:%d: expected expression, got '%.*s'\n", ln, len, start);
     return Int;
 }
 
 int post_expr() {
     int data_type = primary_expr();
-    for (;;) {
-        int kind = g_tks[g_tkIter].kind;
-        int ln = g_tks[g_tkIter].ln;
+    while (1) {
+        int kind = TK_ATTRIB(g_tkIter, Kind);
+        int ln = TK_ATTRIB(g_tkIter, Ln);
         if (kind == '[') {
             ++g_tkIter;
             if (!IS_PTR(data_type)) {
@@ -525,8 +524,8 @@ int post_expr() {
 }
 
 int unary_expr() {
-    int kind = g_tks[g_tkIter].kind;
-    int ln = g_tks[g_tkIter].ln;
+    int kind = TK_ATTRIB(g_tkIter, Kind);
+    int ln = TK_ATTRIB(g_tkIter, Ln);
     if (kind == '!') {
         ++g_tkIter;
         int data_type = unary_expr();
@@ -556,19 +555,16 @@ int unary_expr() {
         else LOADW(EAX, EDX);
         return ((data_type >> 8) & 0xFF0000) | (0xFFFF & data_type);
     }
-    if (kind == '&') {
-        panic("implement &a");
-    }
     return post_expr();
 }
 
 int mul_expr() {
     int data_type = unary_expr();
     while (1) {
-        int optk = g_tks[g_tkIter].kind; int opcode;
-        if (optk == '*') opcode = Mul;
-        else if (optk == '/') opcode = Div;
-        else if (optk == '%') opcode = Rem;
+        int kind = TK_ATTRIB(g_tkIter, Kind), opcode;
+        if (kind == '*') opcode = Mul;
+        else if (kind == '/') opcode = Div;
+        else if (kind == '%') opcode = Rem;
         else break;
         ++g_tkIter;
         PUSH(EAX, 0);
@@ -583,13 +579,16 @@ int mul_expr() {
 int add_expr() {
     int data_type = mul_expr();
     while (1) {
-        int optk = g_tks[g_tkIter].kind; int opcode;
-        if (optk == '+') opcode = Add;
-        else if (optk == '-') opcode = Sub;
+        int kind = TK_ATTRIB(g_tkIter, Kind), opcode;
+        if (kind == '+') opcode = Add;
+        else if (kind == '-') opcode = Sub;
         else break;
         ++g_tkIter;
         PUSH(EAX, 0);
-        mul_expr();
+        int rhs = mul_expr();
+        if (IS_PTR(data_type) && IS_PTR(rhs)) {
+            panic("Todo: * - *");
+        }
         POP(EBX);
         if (IS_PTR(data_type) && data_type != CHAR_PTR) { MUL(EAX, EAX, IMME, 4); }
         instruction(OP(opcode, EAX, EBX, EAX), 0);
@@ -601,7 +600,7 @@ int add_expr() {
 int shift_expr() {
     int data_type = add_expr();
     while (1) {
-        int kind = g_tks[g_tkIter].kind;
+        int kind = TK_ATTRIB(g_tkIter, Kind);
         if (kind != LShift && kind != RShift) break;
         ++g_tkIter;
         PUSH(EAX, 0);
@@ -616,7 +615,7 @@ int shift_expr() {
 int relation_expr() {
     int data_type = shift_expr();
     while (1) {
-        int kind = g_tks[g_tkIter].kind; int opcode;
+        int kind = TK_ATTRIB(g_tkIter, Kind), opcode;
         if (kind == TkNeq) opcode = Neq;
         else if (kind == TkEq) opcode = Eq;
         else if (kind == '<') opcode = Lt;
@@ -637,7 +636,7 @@ int relation_expr() {
 int bit_expr() {
     int data_type = relation_expr();
     while (1) {
-        int kind = g_tks[g_tkIter].kind, opcode;
+        int kind = TK_ATTRIB(g_tkIter, Kind), opcode;
         if (kind == '&') opcode = And;
         else if (kind == '|') opcode = Or;
         else break;
@@ -653,7 +652,7 @@ int bit_expr() {
 int logical_expr() {
     int data_type = bit_expr();
     while (1) {
-        int kind = g_tks[g_tkIter].kind, opcode;
+        int kind = TK_ATTRIB(g_tkIter, Kind), opcode;
         if (kind == TkAnd) opcode = Jz;
         else if (kind == TkOr) opcode = Jnz;
         else break;
@@ -672,7 +671,7 @@ int logical_expr() {
 int assign_expr() {
     int data_type = logical_expr();
     while (1) {
-        int kind = g_tks[g_tkIter].kind;
+        int kind = TK_ATTRIB(g_tkIter, Kind);
         if (kind == '=') {
             ++g_tkIter;
             PUSH(EDX, 0);
@@ -728,7 +727,7 @@ int assign_expr() {
 
 int expr() {
     int type = assign_expr();
-    while (g_tks[g_tkIter].kind == ',') {
+    while (TK_ATTRIB(g_tkIter, Kind) == ',') {
         g_tkIter += 1;
         type = assign_expr();
     }
@@ -736,9 +735,9 @@ int expr() {
 }
 
 void stmt() {
-    int kind = g_tks[g_tkIter].kind;
+    int kind = TK_ATTRIB(g_tkIter, Kind);
     if (kind == Return) {
-        if (g_tks[++g_tkIter].kind != ';') assign_expr();
+        if (TK_ATTRIB(++g_tkIter, Kind) != ';') { assign_expr(); }
         MOV(ESP, EBP, 0);
         POP(EBP);
         instruction(Ret, 0);
@@ -758,7 +757,7 @@ void stmt() {
         instruction(Jz, 0);
         stmt();
 
-        if (g_tks[g_tkIter].kind != Else) {
+        if (TK_ATTRIB(g_tkIter, Kind) != Else) {
             g_instructs[goto_L1].imme = g_insCnt;
             return;
         }
@@ -814,8 +813,8 @@ void stmt() {
         enter_scope();
         ++g_tkIter;
         int restore = 0;
-        while (g_tks[g_tkIter].kind != '}') {
-            kind = g_tks[g_tkIter].kind;
+        while (TK_ATTRIB(g_tkIter, Kind) != '}') {
+            kind = TK_ATTRIB(g_tkIter, Kind);
             if (IS_TYPE(kind)) {
                 ++g_tkIter;
                 int base_type = kind, varNum = 0;
@@ -825,7 +824,7 @@ void stmt() {
                     }
 
                     int ptr = 0;
-                    for (; g_tks[g_tkIter].kind == '*'; ++g_tkIter)
+                    for (; TK_ATTRIB(g_tkIter, Kind) == '*'; ++g_tkIter)
                         ptr = (ptr << 8) | 0xFF;
 
                     int id = expect(Id);
@@ -844,14 +843,14 @@ void stmt() {
                     ++g_symCnt;
 
                     SUB(ESP, ESP, IMME, 4);
-                    if (g_tks[g_tkIter].kind == '=') {
+                    if (TK_ATTRIB(g_tkIter, Kind) == '=') {
                         ++g_tkIter;
                         assign_expr();
                         instruction(OP(Save, ESP, EAX, 0), 4);
                     }
 
                     ++restore, ++varNum;
-                } while (g_tks[g_tkIter].kind != ';');
+                } while (TK_ATTRIB(g_tkIter, Kind) != ';');
 
                 ++g_tkIter;
             } else {
@@ -877,21 +876,21 @@ void stmt() {
 
 // an object could be a global variable, an enum or a function
 void obj() {
-    if (g_tks[g_tkIter].kind == Enum) {
+    if (TK_ATTRIB(g_tkIter, Kind) == Enum) {
         ++g_tkIter;
         expect('{');
         int val = 0;
-        while (g_tks[g_tkIter].kind != '}') {
+        while (TK_ATTRIB(g_tkIter, Kind) != '}') {
             int idx = expect(Id);
             syms[g_symCnt].tkIdx = idx;
             syms[g_symCnt].storage = Const;
             syms[g_symCnt].data_type = Int;
             syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
 
-            if (g_tks[g_tkIter].kind == '=') {
+            if (TK_ATTRIB(g_tkIter, Kind) == '=') {
                 ++g_tkIter;
                 idx = expect(CInt);
-                val = g_tks[idx].value;
+                val = TK_ATTRIB(idx, Value);
             }
 
             syms[g_symCnt].address = val;
@@ -908,8 +907,8 @@ void obj() {
     int data_type = expect_type();
     int id = expect(Id);
 
-    if (g_tks[g_tkIter].kind == '(') {
-        if (streq("main", g_tks[id].start, 4)) {
+    if (TK_ATTRIB(g_tkIter, Kind) == '(') {
+        if (streq("main", TK_ATTRIB(id, Start), 4)) {
             g_entry = g_insCnt;
         } else {
             syms[g_symCnt].storage = Func;
@@ -923,14 +922,14 @@ void obj() {
         enter_scope();
         expect('(');
         int argCnt = 0;
-        while (g_tks[g_tkIter].kind != ')') {
+        while (TK_ATTRIB(g_tkIter, Kind) != ')') {
             if (argCnt > 0) {
                 expect(',');
             }
 
             int data_type = expect_type();
             int ptr = 0;
-            for (; g_tks[g_tkIter].kind == '*'; ++g_tkIter) { ptr = (ptr << 8) | 0xFF; }
+            for (; TK_ATTRIB(g_tkIter, Kind) == '*'; ++g_tkIter) { ptr = (ptr << 8) | 0xFF; }
             data_type = (ptr << 16) | data_type;
 
             syms[g_symCnt].tkIdx = expect(Id);
@@ -969,16 +968,16 @@ void gen() {
 
     for (int i = 0; i < g_callNum; ++i) {
         int idx = g_calls[i].tkIdx;
-        char* start = g_tks[idx].start;
-        char* end = g_tks[idx].end;
-        int ln = g_tks[idx].ln;
+        int start = TK_ATTRIB(idx, Start);
+        int end = TK_ATTRIB(idx, End);
+        int ln = TK_ATTRIB(idx, Ln);
         int len = end - start;
 
         int found = 0;
         for (int j = 0; j < g_symCnt; ++j) {
             if (syms[j].storage == Func) {
                 int funcIdx = syms[j].tkIdx;
-                if (streq(start, g_tks[funcIdx].start, len)) {
+                if (streq(start, TK_ATTRIB(funcIdx, Start), len)) {
                     found = 1;
                     g_instructs[g_calls[i].insIdx].imme = syms[j].address;
                     break;
@@ -1076,6 +1075,9 @@ void exec() {
             g_regs[EAX] = fopen((char*)(p[1]), (char*)(p[0]));
         } else if (op == Malloc) {
             g_regs[EAX] = ram + CHUNK_SIZE;
+        } else if (op == Exit) {
+            g_regs[EAX] = *((int*)g_regs[ESP]);
+            break;
         } else { panic("Invalid op code"); }
     }
 }
@@ -1126,8 +1128,8 @@ void dump_code() {
         } else if (op == Jump || op == Jz || op == Jnz || op == Call) {
             char* opstr = op == Jump ? "jmp" : op == Jz ? "jz" : op == Jnz ? "jnz" : "call";
             printf("  %s %d\n", opstr, imme);
-        } else if (op == Printf || op == Fopen || op == Fgetc || op == Malloc) {
-            char* opstr = op == Printf ? "printf" : op == Fopen ? "fopen" : op == Fgetc ? "fgetc" : "malloc";
+        } else if (op == Printf || op == Fopen || op == Fgetc || op == Malloc || op == Exit) {
+            char* opstr = op == Printf ? "printf" : op == Fopen ? "fopen" : op == Fgetc ? "fgetc" : op == Malloc ? "malloc" : "exit";
             printf("  %s\n", opstr);
         } else {
             panic("invalid op code");
@@ -1166,39 +1168,40 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // initialization
-    memory = 2 * CHUNK_SIZE * argc;
-    ram = malloc(memory);
-
-    // store source to buffer
     void* fp = fopen(argv[1], "r");
     if (!fp) {
         printf("file '%s' does not exist\n", argv[1]);
         return 1;
     }
 
-    int len = 1 << 18;
-    g_src = ram + (memory - len); // pad
+    memory = 2 * CHUNK_SIZE * argc;
+    ram = malloc(memory);
 
-    int i = 0;
-    for (int c; (c = fgetc(fp)) != -1; ++i) { g_src[i] = c; }
-    g_src[i] = 0;
-    DEVPRINT("source len: %d\n", i);
+    int src_reserved = 1 << 18; {
+        g_src = ram + (memory - src_reserved);
+        int i = 0, c;
+        while ((c = fgetc(fp)) != -1) {
+            if (i >= src_reserved) { panic("input file is too big\n"); }
+            g_src[i++] = c;
+        }
+        g_src[i] = 0;
+        DEVPRINT("source len: %d\n", i);
+    }
 
-    g_tks = calloc(len, sizeof(struct Token));
-    syms = calloc(len, sizeof(struct Symbol));
-
-    i = len * (1 + sizeof(struct Token) + sizeof(struct Symbol));
-
-    lex();
+    int tk_reserved = 4 * TokenSize * (src_reserved >> 1);
+    {
+        g_tks = ram + (memory - src_reserved - tk_reserved);
+        lex();
 #if !defined(NOT_DEVELOPMENT) && !defined(TEST)
-    DEVPRINT("-------- lex --------\n");
-    dump_tokens();
-    DEVPRINT("token count: %d\n", g_tkCnt);
+        DEVPRINT("-------- lex --------\n");
+        dump_tokens();
+        DEVPRINT("token count: %d\n", g_tkCnt);
 #endif
+    }
 
     g_bss = ram;
     g_regs[ESP] = ram + memory;
+    syms = calloc(src_reserved, sizeof(struct Symbol));
 
     gen();
     entry(argc - 1, argv + 1);
@@ -1211,7 +1214,6 @@ int main(int argc, char **argv) {
     exec();
 
     free(ram);
-    free(g_tks);
 
     DEVPRINT("-------- exiting --------\n");
     DEVPRINT("script '%s' exit with code %d\n", argv[1], g_regs[EAX]);

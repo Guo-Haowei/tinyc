@@ -10,8 +10,7 @@ fi
 
 cd tmp || exit 1
 
-gcc -Wno-sign-compare -Wno-implicit-function-declaration -DTEST ../c.c -o c || exit 1
-clear
+gcc -Wno-sign-compare -Wno-int-conversion -Wno-implicit-function-declaration -DTEST ../c.c -o c || exit 1
 
 testcase() {
     file=$1
