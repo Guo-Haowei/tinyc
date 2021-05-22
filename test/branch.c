@@ -45,5 +45,10 @@ int main() {
         printf("i is now %d\n", i);
     }
 
+    0 && printf("you should not see this, 0 &&\n");
+    1 && printf("you should see this, 1 &&\n");
+    0 || printf("you should see this, 0 ||\n");
+    1 || printf("you should not see this, 1 ||\n");
+
     return 0;
 }

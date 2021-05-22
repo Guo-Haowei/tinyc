@@ -19,6 +19,7 @@ enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME, };
 int main() {
     printf("CInt is %d\n", CInt);
     printf("Call is %d\n", Call);
+    printf("Undefined is %d\n", Undefined);
     printf("Const is %d\n", Const);
     printf("EAX is %d\n", EAX);
     printf("ESP is %d\n", ESP);

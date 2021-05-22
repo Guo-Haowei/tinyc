@@ -41,15 +41,10 @@
 //- printf                  >-- call c printf, push 8 args onto stack
 
 #ifndef NOT_DEVELOPMENT
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
+#include <stdlib.h> // exit
+#include <stdio.h> // printf
+// #include <string.h>
 #endif // #ifndef NOT_DEVELOPMENT
-
-// definitions
-#define MAX_INS (1 << 12)
-#define MAX_PRINF_ARGS 8
-#define CHUNK_SIZE (1 << 20)
 
 #if defined(TEST) || defined(NOT_DEVELOPMENT)
 #define DEVPRINT(...)
@@ -77,19 +72,21 @@
 #define CHAR_PTR (0xFF0000 | Char)
 #define VOID_PTR (0xFF0000 | Void)
 #define IS_PTR(TYPE) (0xFF0000 & TYPE)
+#define MAX_INS (1 << 12)
+#define MAX_PRINF_ARGS 8
+#define CHUNK_SIZE (1 << 20)
 
-enum { _TK_OFFSET = 128,
+enum { _TkOffset = 128,
        CInt, Id, CStr, CChar,
        TkNeq, TkEq, TkGe, TkLe,
        TkAddTo, TkSubFrom, TkInc, TkDec, TkAnd, TkOr, LShift, RShift,
-       Int, Char, Void,
+       _KeywordStart, Int, Char, Void,
        Break, Cont, Do, Else, Enum, For, If, Return, Sizeof, While,
-       Printf, Fopen, Fgetc, Malloc, Memset, Exit,
+       Printf, Fopen, Fgetc, Malloc, Memset, Exit, _KeywordEnd,
        Add, Sub, Mul, Div, Rem,
        Mov, Push, Pop, Load, Save,
        Neq, Eq, Gt, Ge, Lt, Le, And, Or,
        Not, Ret, Jz, Jnz, Jump, Call,
-       
        _BreakStub, _ContStub, };
 enum { Undefined, Global, Param, Local, Func, Const, };
 enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME, };
@@ -149,10 +146,24 @@ void panic(char* fmt) {
     exit(1);
 }
 
+int streq(char* p1, char* p2, int len) {
+    while (len--) {
+        if (*p1 == 0 || *p2 == 0) return 1;
+        if (*p1 != *p2) return 0;
+        p1 += 1; p2 += 1;
+    }
+    return 1;
+}
+
+int strlen(char* p) {
+    int len = 0;
+    while (*p++) { len += 1; }
+    return len;
+}
+
 void lex() {
     int ln = 1;
-    char *p = g_src, *kw = "int char void break continue do else enum for if "
-                           "return sizeof while printf fopen fgetc malloc memset exit ";
+    char *p = g_src;
     while (*p) {
         if (*p == '#' || (*p == '/' && *(p + 1) == '/')) {
             while (*p && *p != 10) ++p;
@@ -167,14 +178,22 @@ void lex() {
             if (IS_LETTER(*p) || *p == '_') {
                 g_tks[g_tkCnt].kind = Id;
                 for (++p; IS_LETTER(*p) || IS_DIGIT(*p) || *p == '_'; ++p);
-                char *p0 = kw, *p1 = kw;
-                for (int kind = Int; (p1 = strchr(p0, ' ')); p0 = p1 + 1, ++kind) {
-                    if (strncmp(p0, g_tks[g_tkCnt].start, p1 - p0) == 0) {
-                        g_tks[g_tkCnt].kind = kind;
+                g_tks[g_tkCnt].end = p;
+                char *keywords = "int\0     char\0    void\0    break\0   continue\0do\0      "
+                                 "else\0    enum\0    for\0     if\0      return\0  sizeof\0  "
+                                 "while\0   printf\0  fopen\0   fgetc\0   malloc\0  memset\0  "
+                                 "exit";
+                int i = 0, len = g_tks[g_tkCnt].end - g_tks[g_tkCnt].start, range = _KeywordEnd - _KeywordStart - 1;
+                while (i < range) {
+                    char* kw = keywords + (i * 9);
+                    int kwlen = strlen(kw);
+                    if (kwlen == len && streq(g_tks[g_tkCnt].start, kw, 8)) {
+                        g_tks[g_tkCnt].kind = _KeywordStart + i + 1;
                         break;
                     }
+                    ++i;
                 }
-                g_tks[g_tkCnt++].end = p;
+                ++g_tkCnt;
             } else if (*p == '0' && p[1] == 'x') {
                 g_tks[g_tkCnt].kind = CInt;
                 int result = 0;
@@ -340,15 +359,29 @@ int primary_expr() {
     
     if (kind == CStr) {
         MOV(EAX, IMME, g_bss);
-        for (int i = 1; i < len - 1; ++i) {
-            int c = start[i];
-            if (c == 92) { // '\'
-                c = start[++i];
-                if (c == 'n') c = 10;
-                else panic("handle escape sequence");
+        while (1) {
+            len = len - 1;
+            int i = 1;
+            while (i < len) {
+                int c = start[i];
+                if (c == 92) { // '\'
+                    c = start[i += 1];
+                    if (c == 'n') { c = 10; }
+                    else if (c == '0') { c = 0; }
+                    else { COMPILE_ERROR("error:%d: unknown escape sequence '\\%c'\n", ln, c); }
+                }
+                *((char*)g_bss++) = c;
+                ++i;
             }
-            *((char*)g_bss++) = c;
+
+            if (g_tks[g_tkIter].kind != CStr) break;
+            start = g_tks[g_tkIter].start;
+            end = g_tks[g_tkIter].end;
+            ln = g_tks[g_tkIter].ln;
+            len = end - start;
+            ++g_tkIter;
         }
+        
         *((char*)g_bss++) = 0;
         g_bss = ALIGN(g_bss);
         return CHAR_PTR;
@@ -383,7 +416,7 @@ int primary_expr() {
         for (int i = g_symCnt - 1; i >= 0; --i) {
             int tmp = syms[i].tkIdx;
             int tmplen = g_tks[tmp].end - g_tks[tmp].start;
-            if (len == tmplen && strncmp(g_tks[tmp].start, start, len) == 0) {
+            if (len == tmplen && streq(g_tks[tmp].start, start, len)) {
                 address = syms[i].address;
                 type = syms[i].storage;
                 data_type = syms[i].data_type;
@@ -876,7 +909,7 @@ void obj() {
     int id = expect(Id);
 
     if (g_tks[g_tkIter].kind == '(') {
-        if (strncmp("main", g_tks[id].start, 4) == 0) {
+        if (streq("main", g_tks[id].start, 4)) {
             g_entry = g_insCnt;
         } else {
             syms[g_symCnt].storage = Func;
@@ -945,7 +978,7 @@ void gen() {
         for (int j = 0; j < g_symCnt; ++j) {
             if (syms[j].storage == Func) {
                 int funcIdx = syms[j].tkIdx;
-                if (strncmp(start, g_tks[funcIdx].start, len) == 0) {
+                if (streq(start, g_tks[funcIdx].start, len)) {
                     found = 1;
                     g_instructs[g_calls[i].insIdx].imme = syms[j].address;
                     break;
