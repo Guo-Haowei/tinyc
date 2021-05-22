@@ -29,7 +29,11 @@
 #define CHAR_PTR (0xFF0000 | Char)
 #define VOID_PTR (0xFF0000 | Void)
 #define IS_PTR(TYPE) (0xFF0000 & TYPE)
-#define TK_ATTRIB(IDX, ATTRIB) g_tks[(IDX) * TokenSize + ATTRIB]
+#define TK_ATTRIB(IDX, ATTRIB) g_tks[((IDX) * TokenSize) + ATTRIB]
+#define SYM_ATTRIB(IDX, ATTRIB) g_syms[((IDX) * SymSize) + ATTRIB]
+#define OP_ATTRIB(IDX, ATTRIB) g_ops[((IDX) * OpSize) + ATTRIB]
+#define OP2(op, dest) ((op) | (dest << 8))
+#define OP(op, dest, src1, src2) ((op) | (dest << 8) | (src1 << 16) | (src2 << 24))
 
 #define MAX_INS (1 << 14)
 #define MAX_PRINF_ARGS 8
@@ -49,47 +53,34 @@ enum { _TkOffset = 128,
        Not, Ret, Jz, Jnz, Jump, Call,
        _BreakStub, _ContStub };
 enum { Undefined, Global, Param, Local, Func, Const };
-enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME };
+enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME }; // registers
 enum { Kind, Value, Ln, Start, End, TokenSize }; // struct Token
+enum { TkIdx, Scope, DType, Storage, Address, SymSize }; // struct Symbol
+enum { OpCode, Imme, OpSize }; // struct Instruction
 
 char *ram, *g_src;
-int memory;
-int *g_tks, g_tkCnt, g_tkIter;
-
-struct Symbol {
-    int tkIdx;
-    int scope;
-    int data_type;
-    int storage;
-    int address;
-};
-
-struct Ins {
-    int op;
-    int imme;
-};
-
-int g_regs[IMME];
-struct Ins g_instructs[MAX_INS];
-int g_insCnt;
-int g_entry;
-int g_pc; // program counter
-
-int g_bss;
+int g_reserved, g_bss,
+    *g_tks, g_tkCnt, g_tkIter,
+    *g_syms,
+    *g_ops, g_opCnt,
+    *g_regs,
+    g_entry;
 
 #define MAX_SCOPE 128
 int g_scopeId;
 int g_scopes[MAX_SCOPE];
 int scopeCnt;
 
-struct Symbol* syms;
 int g_symCnt;
 
-#if !defined(TEST) && !defined(NOT_DEVELOPMENT)
-int expr();
-#endif
+struct CallToResolve {
+    int insIdx;
+    int tkIdx;
+};
 
-// utility
+struct CallToResolve g_calls[256];
+int g_callNum;
+
 void panic(char* fmt) {
     printf("[panic] %s\n", fmt);
     exit(1);
@@ -192,6 +183,7 @@ void lex() {
 }
 
 void dump_tokens() {
+    printf("-------- lex --------\n");
     int indent = 0, i = 0, ln = 0;
     while (i < g_tkCnt) {
         int tkln = TK_ATTRIB(i, Ln);
@@ -239,10 +231,11 @@ void exit_scope() {
         panic("scope overflow");
     }
 
-    for (int i = g_symCnt - 1; syms[i].scope == g_scopes[scopeCnt - 1]; --i) {
-        --g_symCnt;
+    int i = g_symCnt - 1;
+    while (SYM_ATTRIB(i, Scope) == g_scopes[scopeCnt - 1]) {
+        --g_symCnt, --i;
     }
-
+    
     --scopeCnt;
     return;
 }
@@ -261,8 +254,7 @@ int expect_type() {
     if (IS_TYPE(base_type)) {
         ++g_tkIter;
         int ptr = 0;
-        for (; TK_ATTRIB(g_tkIter, Kind) == '*'; ++g_tkIter)
-            ptr = (ptr << 8) | 0xFF;
+        while (TK_ATTRIB(g_tkIter, Kind) == '*') { ptr = (ptr << 8) | 0xFF; ++g_tkIter; }
         return (ptr << 16) | base_type;
     }
 
@@ -271,26 +263,15 @@ int expect_type() {
 }
 
 void instruction(int op, int imme) {
-    if (g_insCnt >= MAX_INS) {
+    if (g_opCnt >= MAX_INS) {
         panic("instruction overflow");
     }
 
-    g_instructs[g_insCnt].op = op;
-    g_instructs[g_insCnt].imme = imme;
-    ++g_insCnt;
+    OP_ATTRIB(g_opCnt, OpCode) = op;
+    OP_ATTRIB(g_opCnt, Imme) = imme;
+    ++g_opCnt;
     return;
 }
-
-#define OP2(op, dest) ((op) | (dest << 8))
-#define OP(op, dest, src1, src2) ((op) | (dest << 8) | (src1 << 16) | (src2 << 24))
-
-struct CallToResolve {
-    int insIdx;
-    int tkIdx;
-};
-
-struct CallToResolve g_calls[256];
-int g_callNum;
 
 int primary_expr() {
     int tkIdx = g_tkIter++;
@@ -344,14 +325,15 @@ int primary_expr() {
     if (kind == Id) {
         if (TK_ATTRIB(g_tkIter, Kind) == '(') {
             ++g_tkIter;
-            int argc;
-            for (argc = 0; TK_ATTRIB(g_tkIter, Kind) != ')'; ++argc) {
+            int argc = 0;
+            while (TK_ATTRIB(g_tkIter, Kind) != ')') {
                 if (argc > 0) expect(',');
                 assign_expr();
                 PUSH(EAX, 0);
+                ++argc;
             }
 
-            g_calls[g_callNum].insIdx = g_insCnt;
+            g_calls[g_callNum].insIdx = g_opCnt;
             g_calls[g_callNum++].tkIdx = tkIdx;
 
             CALL(0);
@@ -360,16 +342,17 @@ int primary_expr() {
             return Int;
         }
 
-        int address = 0, type = Undefined, data_type = 0;
-        for (int i = g_symCnt - 1; i >= 0; --i) {
-            int tmp = syms[i].tkIdx;
+        int address = 0, type = Undefined, data_type = 0, i = g_symCnt - 1;
+        while (i >= 0) {
+            int tmp = SYM_ATTRIB(i, TkIdx);
             char *tmpstart = TK_ATTRIB(tmp, Start), *tmpend = TK_ATTRIB(tmp, End);
             if (len == (tmpend - tmpstart) && streq(start, tmpstart, len)) {
-                address = syms[i].address;
-                type = syms[i].storage;
-                data_type = syms[i].data_type;
+                address = SYM_ATTRIB(i, Address);
+                type = SYM_ATTRIB(i, Storage);
+                data_type = SYM_ATTRIB(i, DType);
                 break;
             }
+            --i;
         }
 
         if (type == Global) {
@@ -393,10 +376,11 @@ int primary_expr() {
     if (kind == Printf) {
         expect('(');
         int argc = 0;
-        for (; TK_ATTRIB(g_tkIter, Kind) != ')'; ++argc) {
+        while (TK_ATTRIB(g_tkIter, Kind) != ')') {
             if (argc > 0) expect(',');
             assign_expr();
             PUSH(EAX, 0);
+            ++argc;
         }
         if (argc > MAX_PRINF_ARGS) panic("printf supports at most %d args");
         SUB(ESP, ESP, IMME, (MAX_PRINF_ARGS - argc) << 2);
@@ -406,51 +390,23 @@ int primary_expr() {
         return Int;
     }
 
-    if (kind == Fopen) {
-        expect('(');
-        assign_expr();
-        PUSH(EAX, 0);
-        expect(',');
-        assign_expr();
-        PUSH(EAX, 0);
-        instruction(Fopen, 0);
-        ADD(ESP, ESP, IMME, 8);
-        expect(')');
-        return VOID_PTR;
-    }
+    int paramCnt = 0, ret = Void, i = 0;
+    if (kind == Fopen) { paramCnt = 2; ret = VOID_PTR; }
+    else if (kind == Fgetc) { paramCnt = 1; ret = Int; }
+    else if (kind == Malloc) { paramCnt = 1; ret = VOID_PTR; }
+    else if (kind == Exit) { paramCnt = 1; ret = Void; }
+    else { COMPILE_ERROR("error:%d: expected expression, got '%.*s'\n", ln, len, start); }
 
-    if (kind == Fgetc) {
-        expect('(');
+    expect('(');
+    while (i < paramCnt) {
+        if (i++ > 0) { expect(','); }
         assign_expr();
         PUSH(EAX, 0);
-        instruction(Fgetc, 0);
-        ADD(ESP, ESP, IMME, 4);
-        expect(')');
-        return Int;
     }
-
-    if (kind == Malloc) {
-        expect('(');
-        assign_expr();
-        PUSH(EAX, 0);
-        instruction(Malloc, 0);
-        ADD(ESP, ESP, IMME, 4);
-        expect(')');
-        return VOID_PTR;
-    }
-
-    if (kind == Exit) {
-        expect('(');
-        assign_expr();
-        PUSH(EAX, 0);
-        instruction(Exit, 0);
-        ADD(ESP, ESP, IMME, 4);
-        expect(')');
-        return Void;
-    }
-
-    COMPILE_ERROR("error:%d: expected expression, got '%.*s'\n", ln, len, start);
-    return Int;
+    instruction(kind, 0);
+    ADD(ESP, ESP, IMME, 4 * paramCnt);
+    expect(')');
+    return ret;
 }
 
 int post_expr() {
@@ -636,10 +592,10 @@ int logical_expr() {
         else break;
 
         ++g_tkIter;
-        int skip = g_insCnt;
+        int skip = g_opCnt;
         instruction(opcode, 0);
         bit_expr();
-        g_instructs[skip].imme = g_insCnt;
+        OP_ATTRIB(skip, Imme) = g_opCnt;
         continue;
     }
 
@@ -685,15 +641,15 @@ int assign_expr() {
 
         if (kind == '?') {
             ++g_tkIter;
-            int goto_L1 = g_insCnt;
+            int goto_L1 = g_opCnt;
             instruction(Jz, 0);
             int lhs = expr();
             expect(':');
-            int goto_L2 = g_insCnt;
-            instruction(Jump, g_insCnt + 1);
-            g_instructs[goto_L1].imme = g_insCnt;
+            int goto_L2 = g_opCnt;
+            instruction(Jump, g_opCnt + 1);
+            OP_ATTRIB(goto_L1, Imme) = g_opCnt;
             int rhs = assign_expr();
-            g_instructs[goto_L2].imme = g_insCnt;
+            OP_ATTRIB(goto_L2, Imme) = g_opCnt;
             continue;
         }
 
@@ -731,21 +687,21 @@ void stmt() {
         // L2: ...               |
         ++g_tkIter;
         expect('('); expr(); expect(')');
-        int goto_L1 = g_insCnt;
+        int goto_L1 = g_opCnt;
         instruction(Jz, 0);
         stmt();
 
         if (TK_ATTRIB(g_tkIter, Kind) != Else) {
-            g_instructs[goto_L1].imme = g_insCnt;
+            OP_ATTRIB(goto_L1, Imme) = g_opCnt;
             return;
         }
 
         ++g_tkIter; // skip else
-        int goto_L2 = g_insCnt;
-        instruction(Jump, g_insCnt + 1);
-        g_instructs[goto_L1].imme = g_insCnt;
+        int goto_L2 = g_opCnt;
+        instruction(Jump, g_opCnt + 1);
+        OP_ATTRIB(goto_L1, Imme) = g_opCnt;
         stmt();
-        g_instructs[goto_L2].imme = g_insCnt;
+        OP_ATTRIB(goto_L2, Imme) = g_opCnt;
         return;
     }
 
@@ -755,19 +711,19 @@ void stmt() {
         //       ...
         //       jump CONT;
         // BREAK:
-        int label_cont = g_insCnt;
+        int label_cont = g_opCnt;
         ++g_tkIter;
         expect('('); expr(); expect(')');
-        int goto_end = g_insCnt;
+        int goto_end = g_opCnt;
         instruction(Jz, 0);
         stmt();
         instruction(Jump, label_cont);
-        int label_break = g_insCnt;
-        g_instructs[goto_end].imme = label_break;
-        int i = g_insCnt - 1;
+        int label_break = g_opCnt;
+        OP_ATTRIB(goto_end, Imme) = label_break;
+        int i = g_opCnt - 1;
         while (i > label_cont) {
-            if (g_instructs[i].op == _BreakStub) { g_instructs[i].op = Jump; g_instructs[i].imme = label_break; }
-            else if (g_instructs[i].op == _ContStub) { g_instructs[i].op = Jump; g_instructs[i].imme = label_cont; }
+            if (OP_ATTRIB(i, OpCode) == _BreakStub) { OP_ATTRIB(i, OpCode) = Jump; OP_ATTRIB(i, Imme) = label_break; }
+            else if (OP_ATTRIB(i, OpCode) == _ContStub) { OP_ATTRIB(i, OpCode) = Jump; OP_ATTRIB(i, Imme) = label_cont; }
             i -= 1;
         }
         return;
@@ -802,28 +758,24 @@ void stmt() {
                     }
 
                     int ptr = 0;
-                    for (; TK_ATTRIB(g_tkIter, Kind) == '*'; ++g_tkIter)
-                        ptr = (ptr << 8) | 0xFF;
+                    while (TK_ATTRIB(g_tkIter, Kind) == '*') { ptr = (ptr << 8) | 0xFF; ++g_tkIter; }
+                    int id = expect(Id), prev = g_symCnt - 1;
+                    SYM_ATTRIB(g_symCnt, Address) = 4;
 
-                    int id = expect(Id);
-                    int prev = g_symCnt - 1;
-                    syms[g_symCnt].address = 4;
-
-                    if (prev >= 0 && syms[prev].storage == Local) {
-                        syms[g_symCnt].address += syms[prev].address;
+                    if (prev >= 0 && SYM_ATTRIB(prev, Storage) == Local) {
+                        SYM_ATTRIB(g_symCnt, Address) += SYM_ATTRIB(prev, Address);
                     }
 
-                    syms[g_symCnt].storage = Local;
-                    syms[g_symCnt].tkIdx = id;
-                    syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
-                    syms[g_symCnt].data_type = (ptr << 16) | base_type;
+                    SYM_ATTRIB(g_symCnt, Storage) = Local;
+                    SYM_ATTRIB(g_symCnt, TkIdx) = id;
+                    SYM_ATTRIB(g_symCnt, Scope) = g_scopes[scopeCnt - 1];
+                    SYM_ATTRIB(g_symCnt, DType) = (ptr << 16) | base_type;
 
                     SUB(ESP, ESP, IMME, 4);
                     if (TK_ATTRIB(g_tkIter, Kind) == '=') {
                         ++g_tkIter;
                         assign_expr();
-                        // printf("address %d\n", syms[g_symCnt]);
-                        SUB(EDX, EBP, IMME, syms[g_symCnt].address);
+                        SUB(EDX, EBP, IMME, SYM_ATTRIB(g_symCnt, Address));
                         instruction(OP(Save, EDX, EAX, 0), 4);
                     }
 
@@ -861,10 +813,10 @@ void obj() {
         int val = 0;
         while (TK_ATTRIB(g_tkIter, Kind) != '}') {
             int idx = expect(Id);
-            syms[g_symCnt].tkIdx = idx;
-            syms[g_symCnt].storage = Const;
-            syms[g_symCnt].data_type = Int;
-            syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
+            SYM_ATTRIB(g_symCnt, TkIdx) = idx;
+            SYM_ATTRIB(g_symCnt, Storage) = Const;
+            SYM_ATTRIB(g_symCnt, DType) = Int;
+            SYM_ATTRIB(g_symCnt, Scope) = g_scopes[scopeCnt - 1];
 
             if (TK_ATTRIB(g_tkIter, Kind) == '=') {
                 ++g_tkIter;
@@ -872,10 +824,10 @@ void obj() {
                 val = TK_ATTRIB(idx, Value);
             }
 
-            syms[g_symCnt++].address = val++;
+            SYM_ATTRIB(g_symCnt++, Address) = val++;
 
             if (TK_ATTRIB(g_tkIter, Kind) == '}') { break; }
-            expect(','); // force comma
+            expect(',');
         }
         ++g_tkIter;
         expect(';');
@@ -900,45 +852,46 @@ void obj() {
         int id = expect(Id);
 
         if (TK_ATTRIB(g_tkIter, Kind) != '(') {
-            syms[g_symCnt].storage = Global;
-            syms[g_symCnt].tkIdx = id;
-            syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
-            syms[g_symCnt].data_type = data_type;
+            SYM_ATTRIB(g_symCnt, Storage) = Global;
+            SYM_ATTRIB(g_symCnt, TkIdx) = id;
+            SYM_ATTRIB(g_symCnt, Scope) = g_scopes[scopeCnt - 1];
+            SYM_ATTRIB(g_symCnt, DType) = data_type;
             *((int*)g_bss) = 0;
-            syms[g_symCnt++].address = g_bss;
+            SYM_ATTRIB(g_symCnt++, Address) = g_bss;
             g_bss += 4;
             if (TK_ATTRIB(g_tkIter, Kind) != ';') { expect(','); }
             continue;
         }
 
         if (streq("main", TK_ATTRIB(id, Start), 4)) {
-            g_entry = g_insCnt;
+            g_entry = g_opCnt;
         } else {
-            syms[g_symCnt].storage = Func;
-            syms[g_symCnt].tkIdx = id;
-            syms[g_symCnt].data_type = data_type;
-            syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
-            syms[g_symCnt++].address = g_insCnt;
+            SYM_ATTRIB(g_symCnt, Storage) = Func;
+            SYM_ATTRIB(g_symCnt, TkIdx) = id;
+            SYM_ATTRIB(g_symCnt, DType) = data_type;
+            SYM_ATTRIB(g_symCnt, Scope) = g_scopes[scopeCnt - 1];
+            SYM_ATTRIB(g_symCnt++, Address) = g_opCnt;
         }
 
         enter_scope();
         expect('(');
-        int argCnt = 0;
+        int argCnt = 0, i = 1;
         while (TK_ATTRIB(g_tkIter, Kind) != ')') {
             if (argCnt > 0) { expect(','); }
             int data_type = expect_type();
             int ptr = 0;
-            for (; TK_ATTRIB(g_tkIter, Kind) == '*'; ++g_tkIter) { ptr = (ptr << 8) | 0xFF; }
+            while (TK_ATTRIB(g_tkIter, Kind) == '*') { ptr = (ptr << 8) | 0xFF; ++g_tkIter; }
             data_type = (ptr << 16) | data_type;
-            syms[g_symCnt].tkIdx = expect(Id);
-            syms[g_symCnt].scope = g_scopes[scopeCnt - 1];
-            syms[g_symCnt].data_type = data_type;
-            syms[g_symCnt++].storage = Param;
+            SYM_ATTRIB(g_symCnt, TkIdx) = expect(Id);
+            SYM_ATTRIB(g_symCnt, Scope) = g_scopes[scopeCnt - 1];
+            SYM_ATTRIB(g_symCnt, DType) = data_type;
+            SYM_ATTRIB(g_symCnt++, Storage) = Param;
             ++argCnt;
         }
         expect(')');
-        for (int i = 1; i <= argCnt; i = i + 1) {
-            syms[g_symCnt - i].address = -((i + 1) << 2);
+        while (i <= argCnt) {
+            SYM_ATTRIB(g_symCnt - i, Address) = -((i + 1) << 2);
+            ++i;
         }
 
         // save frame
@@ -964,29 +917,31 @@ void gen() {
         panic("Call overflow");
     }
 
-    for (int i = 0; i < g_callNum; ++i) {
+    int i = 0;
+    while (i < g_callNum) {
         int idx = g_calls[i].tkIdx;
         int start = TK_ATTRIB(idx, Start);
         int end = TK_ATTRIB(idx, End);
         int ln = TK_ATTRIB(idx, Ln);
         int len = end - start;
 
-        int found = 0;
-        for (int j = 0; j < g_symCnt; ++j) {
-            if (syms[j].storage == Func) {
-                int funcIdx = syms[j].tkIdx;
+        int found = 0, j = 0;
+        while (j < g_symCnt) {
+            if (SYM_ATTRIB(j, Storage) == Func) {
+                int funcIdx = SYM_ATTRIB(j, TkIdx);
                 if (streq(start, TK_ATTRIB(funcIdx, Start), len)) {
                     found = 1;
-                    g_instructs[g_calls[i].insIdx].imme = syms[j].address;
+                    OP_ATTRIB(g_calls[i].insIdx, Imme) = SYM_ATTRIB(j, Address);
                     break;
                 }
             }
+            ++j;
         }
 
         if (!found) {
             COMPILE_ERROR("error:%d: unknown reference to call %.*s\n", ln, len, start);
         }
-
+        ++i;
     }
 
     exit_scope();
@@ -995,9 +950,9 @@ void gen() {
 
 void exec() {
     int pc = g_entry;
-    while (pc < g_insCnt) {
-        int op = g_instructs[pc].op;
-        int imme = g_instructs[pc].imme;
+    while (pc < g_opCnt) {
+        int op = OP_ATTRIB(pc, OpCode);
+        int imme = OP_ATTRIB(pc, Imme);
         int dest = (op & 0xFF00) >> 8;
         int src1 = (op & 0xFF0000) >> 16;
         int src2 = (op & 0xFF000000) >> 24;
@@ -1083,11 +1038,13 @@ void exec() {
 }
 
 void dump_code() {
-    char* regs = "   eaxebxecxedxespebp";
     #define REG2STR(REG) 3, regs + 3 * REG
-    for (int pc = 0; pc < g_insCnt; ++pc) {
-        int op = g_instructs[pc].op;
-        int imme = g_instructs[pc].imme;
+    printf("-------- code --------\n");
+    char* regs = "   eaxebxecxedxespebp";
+    int pc = 0;
+    while (pc < g_opCnt) {
+        int op = OP_ATTRIB(pc, OpCode);
+        int imme = OP_ATTRIB(pc, Imme);
         int dest = (op & 0xFF00) >> 8;
         int src1 = (op & 0xFF0000) >> 16;
         int src2 = (op & 0xFF000000) >> 24;
@@ -1134,6 +1091,7 @@ void dump_code() {
         } else {
             panic("invalid op code");
         }
+        ++pc;
     }
     return;
 }
@@ -1142,20 +1100,22 @@ void entry(int argc, char** argv) {
     int argptr = g_bss;
     char** argStart = g_bss;
     char* stringStart = argStart + argc;
-    for (int i = 0; i < argc; ++i) {
+    int i = 0;
+    while (i < argc) {
         argStart[i] = stringStart;
-        for (char* p = argv[i]; *p; ++p) {
-            *stringStart++ = *p;
+        char* p = argv[i];
+        while (*p) {
+            *stringStart++ = *p++;
             ++g_bss;
         }
         *stringStart++ = 0;
-        ++g_bss;
+        ++g_bss, ++i;
     }
 
     g_bss = ALIGN(g_bss);
 
     // start
-    int entry = g_insCnt;
+    int entry = g_opCnt;
     PUSH(IMME, argc);
     PUSH(IMME, argptr);
     CALL(g_entry);
@@ -1175,38 +1135,45 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    memory = 2 * CHUNK_SIZE * argc;
-    ram = malloc(memory);
+    g_reserved = 2 * CHUNK_SIZE * argc;
+    ram = malloc(g_reserved);
 
-    int src_reserved = 1 << 18; {
-        g_src = ram + (memory - src_reserved);
-        int c, i = 0;;
-        while ((c = fgetc(fp)) != -1) { g_src[i++] = c; }
-        g_src[i] = 0;
-    }
+    int src_reserved = 1 << 18;
+    int tk_reserved = 4 * TokenSize * (src_reserved >> 2);
+    int sym_reserved = 4 * SymSize * (tk_reserved >> 8);
+    int opcode_reserved = 4 * OpSize * (src_reserved >> 3);
+    g_src = ram + (g_reserved - src_reserved);
+    g_tks = ram + (g_reserved - src_reserved - tk_reserved);
+    g_syms = ram + (g_reserved - src_reserved - tk_reserved - sym_reserved);
+    g_bss = ram + opcode_reserved;
+    g_ops = ram;
 
-    int tk_reserved = 4 * TokenSize * (src_reserved >> 1); {
-        g_tks = ram + (memory - src_reserved - tk_reserved);
-        lex();
+    // read source file
+    int src_len = 0, c;
+    while ((c = fgetc(fp)) != -1) { g_src[src_len++] = c; }
+    g_src[src_len] = 0;
+
+    // lexing
+    lex();
 #if !defined(NOT_DEVELOPMENT) && !defined(TEST)
-        // DEVPRINT("-------- lex --------\n");
-        // dump_tokens();
-        // DEVPRINT("token count: %d\n", g_tkCnt);
+    dump_tokens();
 #endif
-    }
-
-    g_bss = ram;
-    g_regs[ESP] = ram + memory;
-    syms = calloc(src_reserved, sizeof(struct Symbol));
 
     gen();
     entry(argc - 1, argv + 1);
 #if !defined(NOT_DEVELOPMENT) && !defined(TEST)
-    DEVPRINT("-------- code --------\n");
     dump_code();
 #endif
 
+    DEVPRINT("memory:   0x%08X - 0x%08X (reserved %dKB)\n", ram, ram + g_reserved, (g_reserved >> 10));
+    DEVPRINT("opcodes:  0x%08X - 0x%08X (reserved %d, used %d)\n", g_ops, g_ops + opcode_reserved, (opcode_reserved / (4 * OpSize)), g_opCnt);
+    DEVPRINT("tokens:   0x%08X - 0x%08X (reserved %d, used %d)\n", g_tks, g_src, (tk_reserved / (4 * TokenSize)), g_tkCnt);
+    DEVPRINT("source:   0x%08X - 0x%08X (reserved %dB, used %d)\n", g_src, ram + g_reserved, src_reserved, src_len);
+
     DEVPRINT("-------- exec --------\n");
+    // set up registers
+    g_regs = ram + g_reserved - 4 * IMME;
+    g_regs[ESP] = ram + g_reserved - 4 * IMME;
     exec();
 
     DEVPRINT("-------- exiting --------\n");

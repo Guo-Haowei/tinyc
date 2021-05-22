@@ -16,7 +16,7 @@ enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME };
 enum { Kind, Value, Ln, Start, End, TokenSize };
 
 char *ram, *g_src;
-int memory;
+int g_reserved;
 int *g_tks, g_tkCnt, g_tkIter;
 
 void panic(char* fmt) {
@@ -160,16 +160,16 @@ int main(int argc, char **argv) {
         printf("file '%s' does not exist\n", argv[1]);
         return 1;
     }
-    memory = 2 * (1 << 20) * argc;
-    ram = malloc(memory);
+    g_reserved = 2 * (1 << 20) * argc;
+    ram = malloc(g_reserved);
     int src_reserved = 1 << 18; {
-        g_src = ram + (memory - src_reserved);
+        g_src = ram + (g_reserved - src_reserved);
         int c, i = 0;;
         while ((c = fgetc(fp)) != -1) { g_src[i++] = c; }
         g_src[i] = 0;
     }
     int tk_reserved = 4 * TokenSize * (src_reserved >> 1); {
-        g_tks = ram + (memory - src_reserved - tk_reserved);
+        g_tks = ram + (g_reserved - src_reserved - tk_reserved);
         lex();
         dump_tokens();
     }
