@@ -13,6 +13,6 @@ This is a tiny C interpreter. (Aiming for self hosting)
 - [x] address `*, []`
 
 - [x] branch `if, else, ?:`
-- [ ] iteration `do, while, for`
+- [x] iteration `while, break, continue`
 
 - [ ] `enum`

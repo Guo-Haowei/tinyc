@@ -82,14 +82,15 @@ enum { _TK_OFFSET = 128,
        TkNeq, TkEq, TkGe, TkLe,
        TkAddTo, TkSubFrom, TkInc, TkDec, TkAnd, TkOr, TkLshift, TkRshift,
        Int, Char, Void,
-       Do, Else, Enum, For, If, Return, Sizeof, While,
+       Break, Cont, Do, Else, Enum, For, If, Return, Sizeof, While,
        Printf, Fopen, Fgetc, Malloc, Memset, Exit,
        TkCnt };
 enum { // Printf, Fopen, Fgetc, Malloc, Memset, Exit,
        Add = TkCnt, Sub, Mul, Div, Rem,
        Mov, Push, Pop, Load, Save,
        Neq, Eq, Gt, Ge, Lt, Le,
-       Not, Ret, Jz, Jnz, Jump, Call };
+       Not, Ret, Jz, Jnz, Jump, Call,
+       _BreakStub, _ContStub };
 enum { Undefined, Global, Param, Local, Func, Const };
 enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME };
 
@@ -148,7 +149,8 @@ void panic(char* fmt) {
 
 void lex() {
     int ln = 1;
-    char *p = g_src, *kw = "int char void do else enum for if return sizeof while printf fopen fgetc malloc memset exit ";
+    char *p = g_src, *kw = "int char void break continue do else enum for if "
+                           "return sizeof while printf fopen fgetc malloc memset exit ";
     while (*p) {
         if (*p == '#' || (*p == '/' && *(p + 1) == '/')) {
             while (*p && *p != 10) ++p;
@@ -231,9 +233,8 @@ void dump_tokens() {
             printf("\n%-3d:%.*s", tkln, indent * 4, "                                        ");
             ln = tkln;
         }
-        char* names = "Int   Char  Void  Do    Else  Enum  For   If    Ret   SizeofWhile "
-                      "Print Open  MallocMemsetExit  ";
-
+        char* names = "Int   Char  Void  Break Cont  Do    Else  Enum  For   "
+                      "If    Ret   SizeofWhile Print Open  MallocMemsetExit  ";
         printf("%.*s", len, start);
         if (kind >= Int) {
             char *p = names + 6 * (kind - Int);
@@ -707,36 +708,40 @@ void stmt() {
     }
 
     if (kind == While) {
-        // TEST: ...
-        //       eax == 0; goto END
+        // CONT: ...
+        //       eax == 0; goto BREAK
         //       ...
-        //       jump TEST;
-        // END:
-        int test_label = g_insCnt;
+        //       jump CONT;
+        // BREAK:
+        int label_cont = g_insCnt;
         ++g_tkIter;
         expect('('); expr(); expect(')');
         int goto_end = g_insCnt;
         instruction(Jz, 0);
         stmt();
-        instruction(Jump, test_label);
-        g_instructs[goto_end].imme = g_insCnt;
+        instruction(Jump, label_cont);
+        int label_break = g_insCnt;
+        g_instructs[goto_end].imme = label_break;
+        int i = g_insCnt - 1;
+        while (i > label_cont) {
+            if (g_instructs[i].op == _BreakStub) { g_instructs[i].op = Jump; g_instructs[i].imme = label_break; }
+            else if (g_instructs[i].op == _ContStub) { g_instructs[i].op = Jump; g_instructs[i].imme = label_cont; }
+            i -= 1;
+        }
         return;
     }
 
-    if (kind == Do) {
-        // START: ...
-        //        eax == 0; goto END
-        //        jump START;
-        // EMD:   ...
-        int start_label = g_insCnt;
+    if (kind == Break) {
         ++g_tkIter;
-        stmt();
-        expect(While);
-        expect('('); expr(); expect(')');
-        int goto_end = g_insCnt;
-        instruction(Jz, 0);
-        instruction(Jump, start_label);
-        g_instructs[goto_end].imme = g_insCnt;
+        instruction(_BreakStub, 0);
+        expect(';');
+        return;
+    }
+
+    if (kind == Cont) {
+        ++g_tkIter;
+        instruction(_ContStub, 0);
+        expect(';');
         return;
     }
 
