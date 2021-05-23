@@ -10,8 +10,6 @@ fi
 
 cd tmp || exit 1
 
-gcc -Wno-sign-compare -Wno-int-conversion -Wno-implicit-function-declaration -DTEST ../c.c -o c || exit 1
-
 testcase() {
     file=$1
 
@@ -21,7 +19,8 @@ testcase() {
     echo "Running test [$name]..."
 
     gcc -Wno-implicit-function-declaration $file || exit 1
-    ./c $file ../test/$name.c > $name.actual
+    ../c $file ../test/$name.c > $name.actual
+    ../c ../c.c $file ../test/$name.c > $name.actual
     ./a ../test/$name.c > $name.expect
 
     diff $name.expect $name.actual

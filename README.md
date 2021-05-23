@@ -1,19 +1,11 @@
 ## C
-This is a tiny C interpreter. (Aiming for self hosting)
 
-#### Todos
-- [x] decimal, hex, char and string literal
-- [x] arith `+, -, *, /, %`
-- [x] relational `>, <, >=, <=, !=, ==`,
-- [x] unary `+, -, !`
-- [x] assignment `=, +=, -=`
-- [x] increment `++, --`
-- [x] logical `&&, ||`
-- [x] bitwise `&, |, >>, <<`
-- [x] address `*, []`
-- [x] cast `(int)<expr>`
+```shell
+$ sh build.sh
+$ ./c hello.c
+$ ./c c.c hello.c
+$ ./c c.c c.c hello.c
+$ sh run-test.sh
+```
 
-- [x] branch `if, else, ?:`
-- [x] iteration `while, break, continue`
-
-- [x] `enum`
+This project is a tiny C interpreter inspired by [c4](https://github.com/rswier/c4).
