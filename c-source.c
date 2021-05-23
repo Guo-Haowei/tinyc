@@ -1,12 +1,6 @@
-#ifndef NOT_DEVELOPMENT
+#ifndef PREPROC
 #include <stdlib.h>
 #include <stdio.h>
-#endif // #ifndef NOT_DEVELOPMENT
-
-#if defined(TEST) || defined(NOT_DEVELOPMENT)
-#define DEVPRINT(...)
-#else
-#define DEVPRINT(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
 #define IS_LETTER(C) ((C >= 'a' && C <= 'z') || (C >= 'A' && C <= 'Z'))
@@ -1078,23 +1072,9 @@ int main(int argc, char **argv) {
 
     // lexing
     lex();
-#if !defined(NOT_DEVELOPMENT) && !defined(TEST)
-    dump_tokens();
-#endif
 
     // code generation
     gen(argc - 1, argv + 1);
-#if !defined(NOT_DEVELOPMENT) && !defined(TEST)
-    dump_code();
-#endif
-
-    DEVPRINT("memory:   0x%08X - 0x%08X (reserved %dKB)\n", g_ram, g_ram + g_reserved, (g_reserved >> 10));
-    DEVPRINT("calls:    0x%08X - 0x%08X (reserved %d, used %d)\n", g_calls, g_calls + call_reserved, (call_reserved / (4 * CallSize)), g_callCnt);
-    DEVPRINT("opcodes:  0x%08X - 0x%08X (reserved %d, used %d)\n", g_ops, g_ops + opcode_reserved, (opcode_reserved / (4 * OpSize)), g_opCnt);
-    DEVPRINT("tokens:   0x%08X - 0x%08X (reserved %d, used %d)\n", g_tks, g_src, (tk_reserved / (4 * TokenSize)), g_tkCnt);
-    DEVPRINT("source:   0x%08X - 0x%08X (reserved %dB, used %d)\n", g_src, g_ram + g_reserved, src_reserved, src_len);
-
-    DEVPRINT("-------- exec --------\n");
 
     // run
     g_regs = g_ram + g_reserved - 4 * IMME;
@@ -1185,8 +1165,5 @@ int main(int argc, char **argv) {
             break;
         } else { panic("Invalid op code"); }
     }
-
-    DEVPRINT("-------- exiting --------\n");
-    DEVPRINT("script '%s' exit with code %d\n", argv[1], g_regs[EAX]);
     return 0;
 }
