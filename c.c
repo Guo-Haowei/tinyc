@@ -492,8 +492,23 @@ int unary_expr() {
     return post_expr();
 }
 
+int cast_expr() {
+    if (TK_ATTRIB(g_tkIter, Kind) == '(') {
+        int kind = TK_ATTRIB(g_tkIter + 1, Kind);
+        if (IS_TYPE(kind)) {
+            ++g_tkIter; // skip '('
+            int data_type = expect_type();
+            expect(')');
+            cast_expr();
+            return data_type;
+        }
+    }
+
+    return unary_expr();
+}
+
 int mul_expr() {
-    int data_type = unary_expr();
+    int data_type = cast_expr();
     while (1) {
         int kind = TK_ATTRIB(g_tkIter, Kind), opcode;
         if (kind == '*') opcode = Mul;
@@ -502,7 +517,7 @@ int mul_expr() {
         else break;
         ++g_tkIter;
         PUSH(EAX, 0);
-        unary_expr();
+        cast_expr();
         POP(EBX);
         instruction(OP(opcode, EAX, EBX, EAX), 0);
     }

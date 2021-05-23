@@ -11,6 +11,7 @@ This is a tiny C interpreter. (Aiming for self hosting)
 - [x] logical `&&, ||`
 - [x] bitwise `&, |, >>, <<`
 - [x] address `*, []`
+- [x] cast `(int)<expr>`
 
 - [x] branch `if, else, ?:`
 - [x] iteration `while, break, continue`
