@@ -31,7 +31,7 @@
 #define OP(op, dest, src1, src2) ((op) | (dest << 8) | (src1 << 16) | (src2 << 24))
 
 #define MAX_PRINF_ARGS 8
-#define CHUNK_SIZE (1 << 20)
+#define CHUNK_SIZE (1 << 27)
 #define MAX_SCOPE 128
 #define MAX_CALLS 1024
 

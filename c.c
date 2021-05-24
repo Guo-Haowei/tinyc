@@ -894,7 +894,7 @@ int main(int argc, char **argv) {
         printf("file '%s' does not exist\n", argv[1]);
         return 1;
     }
-    g_reserved = 2 * (1 << 20) * argc;
+    g_reserved = 2 * (1 << 27) * argc;
     g_ram = malloc(g_reserved);
     int src_reserved = 1 << 18;
     int tk_reserved = 4 * TokenSize * (src_reserved >> 2);
@@ -988,7 +988,7 @@ int main(int argc, char **argv) {
             int* p = g_regs[ESP];
             g_regs[EAX] = fopen((char*)(p[1]), (char*)(p[0]));
         } else if (op == Malloc) {
-            g_regs[EAX] = g_ram + (1 << 20);
+            g_regs[EAX] = g_ram + (1 << 27);
         } else if (op == Exit) {
             g_regs[EAX] = *((int*)g_regs[ESP]);
             break;

@@ -5,6 +5,7 @@ $ sh build.sh
 $ ./c hello.c
 $ ./c c.c hello.c
 $ ./c c.c c.c hello.c
+$ ./c c.c c.c c.c hello.c
 $ sh run-test.sh
 ```
 
