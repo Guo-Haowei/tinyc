@@ -1,3 +1,11 @@
+//< This project is inspired by C4
+//< It consists of three passes: lexer, code generation and virtual machine
+//<     C source code is parsed into a list of tokens
+//<     and then feed to the parser, AST will not be generated,
+//<     a set of x86 like instructions and executed on virtual machine
+//< Keywords such as for, do while, switch case are not supported
+//< It only supports char, int, and pointer types
+//< structs are not supported, enum + int array is sufficient enough
 #ifndef PREPROC
 #include <stdlib.h>
 #include <stdio.h>
@@ -17,6 +25,7 @@
 #define ADD(DEST, SRC1, SRC2, VAL) instruction(Add | (DEST << 8) | (SRC1 << 16) | (SRC2 << 24), (VAL))
 #define SUB(DEST, SRC1, SRC2, VAL) instruction(Sub | (DEST << 8) | (SRC1 << 16) | (SRC2 << 24), (VAL))
 #define MUL(DEST, SRC1, SRC2, VAL) instruction(Mul | (DEST << 8) | (SRC1 << 16) | (SRC2 << 24), (VAL))
+#define SAVEW(DEST, SRC) instruction(Save | (DEST << 8) | (SRC << 16), 4);
 #define CALL(ENTRY) instruction(Call, ENTRY);
 #define LOADB(DEST, SRC) instruction(Load | (DEST << 8) | (SRC << 16), 1)
 #define LOADW(DEST, SRC) instruction(Load | (DEST << 8) | (SRC << 16), 4)
@@ -27,7 +36,6 @@
 #define SYM_ATTRIB(IDX, ATTRIB) g_syms[((IDX) * SymSize) + ATTRIB]
 #define OP_ATTRIB(IDX, ATTRIB) g_ops[((IDX) * OpSize) + ATTRIB]
 #define CALL_ATTRIB(IDX, ATTRIB) g_calls[((IDX) * CallSize) + ATTRIB]
-#define OP2(op, dest) ((op) | (dest << 8))
 #define OP(op, dest, src1, src2) ((op) | (dest << 8) | (src1 << 16) | (src2 << 24))
 
 #define MAX_PRINF_ARGS 8
@@ -49,16 +57,11 @@ enum { _TkOffset = 128,
        Not, Ret, Jz, Jnz, Jump, Call,
        _BreakStub, _ContStub };
 enum { Undefined, Global, Param, Local, Func, Const };
-// registers
 enum { EAX = 1, EBX, ECX, EDX, ESP, EBP, IMME };
-// struct Token
 enum { Kind, Value, Ln, Start, End, TokenSize };
-// struct Symbol
 enum { TkIdx, Scope, DType, Storage, Address, SymSize };
-// struct Instruction
 enum { OpCode, Imme, OpSize };
-// struct Calls
-enum { InsIdx = 1, CallSize }; // TkIdx = 0
+enum { /* TkIndex = 0, */ InsIdx = 1, CallSize };
 
 char *g_ram, *g_src;
 int g_reserved, g_bss,
@@ -94,13 +97,12 @@ void lex() {
     int ln = 1, range = _KeywordEnd - _KeywordStart - 1;
     char *p = g_src;
     while (*p) {
-        if (*p == '#' || (*p == '/' && *(p + 1) == '/')) { while (*p && *p != 10) ++p; }
+        if (*p == '#' || (*p == '/' && p[1] == '/')) { while (*p && *p != 10) ++p; }
         else if (IS_WHITESPACE(*p)) { ln += (*p == 10); ++p; }
         else {
             TK_ATTRIB(g_tkCnt, Ln) = ln;
             TK_ATTRIB(g_tkCnt, Start) = p;
 
-            // id or keyword
             if (IS_LETTER(*p) || *p == '_') {
                 TK_ATTRIB(g_tkCnt, Kind) = Id;
                 ++p; while (IS_LETTER(*p) || IS_DIGIT(*p) || *p == '_') { ++p; }
@@ -171,6 +173,7 @@ void lex() {
     return;
 }
 
+// debug
 void dump_tokens() {
     printf("-------- lex --------\n");
     int indent = 0, i = 0, ln = 0;
@@ -424,7 +427,7 @@ int post_expr() {
             int value = (IS_PTR(data_type) && data_type != CHAR_PTR) ? 4 : 1;
             int op = kind == TkInc ? Add : Sub;
             instruction(OP(op, EBX, EBX, IMME), value);
-            instruction(OP(Save, EDX, EBX, 0), 4);
+            SAVEW(EDX, EBX);
         } else {
             break;
         }
@@ -471,7 +474,7 @@ int unary_expr() {
         int value = (IS_PTR(data_type) && data_type != CHAR_PTR) ? 4 : 1;
         int op = kind == TkInc ? Add : Sub;
         instruction(OP(op, EAX, EAX, IMME), value);
-        instruction(OP(Save, EDX, EAX, 0), 4);
+        SAVEW(EDX, EAX);
         return data_type;
     }
     return post_expr();
@@ -629,7 +632,7 @@ int assign_expr() {
             LOADW(EBX, EDX);
             if (IS_PTR(data_type) && data_type != CHAR_PTR) { MUL(EAX, EAX, IMME, 4); }
             ADD(EAX, EBX, EAX, 0);
-            instruction(OP(Save, EDX, EAX, 0), 4);
+            SAVEW(EDX, EAX);
             continue;
         }
 
@@ -641,7 +644,7 @@ int assign_expr() {
             LOADW(EBX, EDX);
             if (IS_PTR(data_type) && data_type != CHAR_PTR) { MUL(EAX, EAX, IMME, 4); }
             SUB(EAX, EBX, EAX, 0);
-            instruction(OP(Save, EDX, EAX, 0), 4);
+            SAVEW(EDX, EAX);
             continue;
         }
 
@@ -782,7 +785,7 @@ void stmt() {
                         ++g_tkIter;
                         assign_expr();
                         SUB(EDX, EBP, IMME, SYM_ATTRIB(g_symCnt, Address));
-                        instruction(OP(Save, EDX, EAX, 0), 4);
+                        SAVEW(EDX, EAX);
                     }
 
                     ++restore, ++varNum, ++g_symCnt;
@@ -949,7 +952,7 @@ void gen(int argc, char** argv) {
 
     exit_scope();
 
-    // copy args to bss
+    // copy args to "bss" section
     int argptr = g_bss, it = 0;
     char** argStart = g_bss;
     char* stringStart = argStart + argc;
@@ -977,6 +980,7 @@ void gen(int argc, char** argv) {
     return;
 }
 
+// debug
 void dump_code() {
     #define REG2STR(REG) 3, regs + 3 * REG
     printf("-------- code --------\n");
@@ -1049,8 +1053,10 @@ int main(int argc, char **argv) {
     }
 
     g_reserved = 2 * CHUNK_SIZE * argc;
-    g_ram = malloc(g_reserved);
+    g_ram = malloc(g_reserved); // NOTE: whatever, too lazy to free it
 
+    // memory layout
+    // | instructions | global variables | ... script memory ... | stack |
     int src_reserved = 1 << 18;
     int tk_reserved = 4 * TokenSize * (src_reserved >> 2);
     int sym_reserved = 4 * SymSize * (tk_reserved >> 8);

@@ -50,7 +50,7 @@ void lex() {
     int ln = 1, range = _KeywordEnd - _KeywordStart - 1;
     char *p = g_src;
     while (*p) {
-        if (*p == '#' || (*p == '/' && *(p + 1) == '/')) { while (*p && *p != 10) ++p; }
+        if (*p == '#' || (*p == '/' && p[1] == '/')) { while (*p && *p != 10) ++p; }
         else if ((*p == ' ' || *p == 9 || *p == 10 || *p == 13)) { ln += (*p == 10); ++p; }
         else {
             g_tks[((g_tkCnt) * TokenSize) + Ln] = ln;
@@ -351,7 +351,7 @@ int post_expr() {
             int value = ((0xFF0000 & data_type) && data_type != (0xFF0000 | Char)) ? 4 : 1;
             int op = kind == TkInc ? Add : Sub;
             instruction(((op) | (EBX << 8) | (EBX << 16) | (IMME << 24)), value);
-            instruction(((Save) | (EDX << 8) | (EBX << 16) | (0 << 24)), 4);
+            instruction(Save | (EDX << 8) | (EBX << 16), 4);;
         } else {
             break;
         }
@@ -396,7 +396,7 @@ int unary_expr() {
         int value = ((0xFF0000 & data_type) && data_type != (0xFF0000 | Char)) ? 4 : 1;
         int op = kind == TkInc ? Add : Sub;
         instruction(((op) | (EAX << 8) | (EAX << 16) | (IMME << 24)), value);
-        instruction(((Save) | (EDX << 8) | (EAX << 16) | (0 << 24)), 4);
+        instruction(Save | (EDX << 8) | (EAX << 16), 4);;
         return data_type;
     }
     return post_expr();
@@ -539,7 +539,7 @@ int assign_expr() {
             instruction(Load | (EBX << 8) | (EDX << 16), 4);
             if ((0xFF0000 & data_type) && data_type != (0xFF0000 | Char)) { instruction(Mul | (EAX << 8) | (EAX << 16) | (IMME << 24), (4)); }
             instruction(Add | (EAX << 8) | (EBX << 16) | (EAX << 24), (0));
-            instruction(((Save) | (EDX << 8) | (EAX << 16) | (0 << 24)), 4);
+            instruction(Save | (EDX << 8) | (EAX << 16), 4);;
             continue;
         }
         if (kind == TkSubFrom) {
@@ -550,7 +550,7 @@ int assign_expr() {
             instruction(Load | (EBX << 8) | (EDX << 16), 4);
             if ((0xFF0000 & data_type) && data_type != (0xFF0000 | Char)) { instruction(Mul | (EAX << 8) | (EAX << 16) | (IMME << 24), (4)); }
             instruction(Sub | (EAX << 8) | (EBX << 16) | (EAX << 24), (0));
-            instruction(((Save) | (EDX << 8) | (EAX << 16) | (0 << 24)), 4);
+            instruction(Save | (EDX << 8) | (EAX << 16), 4);;
             continue;
         }
         if (kind == '?') {
@@ -665,7 +665,7 @@ void stmt() {
                         ++g_tkIter;
                         assign_expr();
                         instruction(Sub | (EDX << 8) | (EBP << 16) | (IMME << 24), (g_syms[((g_symCnt) * SymSize) + Address]));
-                        instruction(((Save) | (EDX << 8) | (EAX << 16) | (0 << 24)), 4);
+                        instruction(Save | (EDX << 8) | (EAX << 16), 4);;
                     }
                     ++restore, ++varNum, ++g_symCnt;
                     if (g_tks[((g_tkIter) * TokenSize) + Kind] == ';') { break; }
