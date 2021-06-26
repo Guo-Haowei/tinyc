@@ -1,4 +1,4 @@
-## C Interpreter
+## c.c
 
 ```shell
 $ sh build.sh
